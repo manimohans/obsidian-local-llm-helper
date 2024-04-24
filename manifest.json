@@ -1,5 +1,5 @@
 {
-	"id": "obsidian-local-llm-helper",
+	"id": "local-llm-helper",
 	"name": "Local LLM Helper",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",

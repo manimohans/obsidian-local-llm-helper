@@ -9,6 +9,7 @@ import {
 	PluginSettingTab,
 	Setting,
 	View,
+	requestUrl,
 } from "obsidian";
 
 // Remember to rename these classes and interfaces!
@@ -136,22 +137,6 @@ export default class OLocalLLMPlugin extends Plugin {
 	
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText("Woah!");
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
-	}
-}
-
 class OLLMSettingTab extends PluginSettingTab {
     plugin: OLocalLLMPlugin;
 
@@ -209,6 +194,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 
 async function processText(selectedText: string, serverAddress: string, serverPort: string, modelName: string, prompt:string) {
+  new Notice("Generating response. This takes a few seconds..");
   const body = {
     model: modelName, // Replace with your model name (optional)
     messages: [
@@ -221,26 +207,31 @@ async function processText(selectedText: string, serverAddress: string, serverPo
   };
 
   try {
-    const response = await fetch(`http://${serverAddress}:${serverPort}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+	const response = await requestUrl({
+	  url: `http://${serverAddress}:${serverPort}/v1/chat/completions`,
+	  method: "POST",
+	  headers: { "Content-Type": "application/json" },
+	  body: JSON.stringify(body),
+	});
 
-    if (response.ok) {
-      const data = await response.json();
+	const statusCode = response.status;
+
+    if (statusCode >= 200 && statusCode < 300) {
+      const data = await response.json;
+	  console.log(data);
       // Process the response data (assuming it contains the summarized text)
       const summarizedText = data.choices[0].message.content; // Assuming first choice is the summary
 	  console.log(modelName, serverAddress, serverPort);
 	  console.log(summarizedText);
+	  new Notice("Text generated. Voila!");
       replaceSelectedText(summarizedText);
     } else {
-      console.error("Error summarizing text:", response.statusText);
-      new Notification("Summarizer failed!", { body: "Check the plugin console for details" });
+      console.error("Error summarizing text:", response.text);
+	  new Notice("Error summarizing text: Check plugin console for more details!");
     }
   } catch (error) {
     console.error("Error during request:", error);
-    new Notification("Summarizer failed!", { body: "Check the plugin console for details" });
+	new Notice("Error summarizing text: Check plugin console for more details!");
   }
 }
 

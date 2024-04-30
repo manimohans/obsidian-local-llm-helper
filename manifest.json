@@ -1,11 +1,11 @@
 {
 	"id": "local-llm-helper",
 	"name": "Local LLM Helper",
-	"version": "1.0.2",
-	"minAppVersion": "0.15.0",
+	"version": "1.0.3",
+	"minAppVersion": "1.5.12",
 	"description": "Use your own secure local LLM server to work with your text!",
 	"author": "Mani Mohan",
 	"authorUrl": "https:/warpcast.com/mani",
-	"fundingUrl": "manee.eth",
+	"fundingUrl": "https://buymeacoffee.com/manee",
 	"isDesktopOnly": false
 }

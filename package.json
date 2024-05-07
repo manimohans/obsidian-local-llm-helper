@@ -11,6 +11,7 @@
     "ansi-styles": "^4.3.0",
     "argparse": "^2.0.1",
     "array-union": "^2.1.0",
+    "axios": "^1.6.8",
     "balanced-match": "^1.0.2",
     "brace-expansion": "^1.1.11",
     "braces": "^3.0.2",
@@ -120,12 +121,11 @@
     "yallist": "^4.0.0",
     "yocto-queue": "^0.1.0"
   },
-  "devDependencies": {},
   "scripts": {
-		"dev": "node esbuild.config.mjs",
-		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-		"version": "node version-bump.mjs && git add manifest.json versions.json"
-	},
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "version": "node version-bump.mjs && git add manifest.json versions.json"
+  },
   "author": "warpcast.com/mani",
   "license": "ISC"
 }

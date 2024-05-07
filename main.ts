@@ -18,12 +18,14 @@ interface OLocalLLMSettings {
 	serverAddress: string;
 	serverPort:string;
 	llmModel:string;
+	stream:boolean;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverAddress: "localhost",
 	serverPort: "1234",
 	llmModel: "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
+	stream:false
 };
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -43,7 +45,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(selectedText, this.settings.serverAddress, this.settings.serverPort,
-								this.settings.llmModel, "Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):");
+								this.settings.llmModel, "Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):", this.settings.stream);
 						}
 					})
 			);
@@ -56,7 +58,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(selectedText, this.settings.serverAddress, this.settings.serverPort,
-								this.settings.llmModel, "Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):");
+								this.settings.llmModel, "Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):", this.settings.stream);
 						}
 					})
 			);
@@ -69,7 +71,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(selectedText, this.settings.serverAddress, this.settings.serverPort,
-								this.settings.llmModel, "Generate text based on the following text:");
+								this.settings.llmModel, "Generate text based on the following text:", this.settings.stream);
 						}
 					})
 			);
@@ -177,51 +179,107 @@ class OLLMSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     })
             );
+
+		new Setting(containerEl)
+			.setName("Streaming")
+			.setDesc("Enable to receive the response in real-time, word by word.")
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.stream) // Assume 'stream' exists in your settings
+				.onChange(async (value) => {
+					this.plugin.settings.stream = value;
+					await this.plugin.saveSettings();
+				})
+			);
     }
 }
 
 
-async function processText(selectedText: string, serverAddress: string, serverPort: string, modelName: string, prompt:string) {
-  new Notice("Generating response. This takes a few seconds..");
-  const body = {
-    model: modelName, // Replace with your model name (optional)
-    messages: [
-      { role: "system", content: "You are my text editor AI agent" }, // Optional prompt for the server
-      { role: "user", content: prompt+": " +selectedText },
-    ],
-    temperature: 0.7, // Adjust temperature as needed
-    max_tokens: -1, // Set max response length or -1 for unlimited (optional)
-    stream: false, // Enable receiving response in chunks (optional)
-  };
-
-  try {
-	const response = await requestUrl({
-	  url: `http://${serverAddress}:${serverPort}/v1/chat/completions`,
-	  method: "POST",
-	  headers: { "Content-Type": "application/json" },
-	  body: JSON.stringify(body),
-	});
-
-	const statusCode = response.status;
-
-    if (statusCode >= 200 && statusCode < 300) {
-      const data = await response.json;
-	  console.log(data);
-      // Process the response data (assuming it contains the summarized text)
-      const summarizedText = data.choices[0].message.content; // Assuming first choice is the summary
-	  console.log(modelName, serverAddress, serverPort);
-	  console.log(summarizedText);
-	  new Notice("Text generated. Voila!");
-      replaceSelectedText(summarizedText);
-    } else {
-      console.error("Error summarizing text:", response.text);
+async function processText(selectedText: string, serverAddress: string, serverPort: string, modelName: string, prompt: string, stream: boolean) {
+	new Notice("Generating response. This takes a few seconds..");
+	const body = {
+	  model: modelName,
+	  messages: [
+		{ role: "system", content: "You are my text editor AI agent" }, 
+		{ role: "user", content: prompt + ": " + selectedText },
+	  ],
+	  temperature: 0.7,
+	  max_tokens: -1,
+	  stream, 
+	};
+  
+	try {
+	  if (stream) {
+		const response = await fetch(`http://${serverAddress}:${serverPort}/v1/chat/completions`, {
+		  method: 'POST',
+		  headers: { "Content-Type": "application/json" },
+		  body: JSON.stringify(body)
+		});
+  
+		if (!response.ok) {
+		   throw new Error("Error summarizing text (Fetch): " + response.statusText);
+		}
+  
+		const reader = response.body.getReader();
+		const decoder = new TextDecoder();
+  
+		const readChunk = async () => {
+		  const { done, value } = await reader.read(); 
+  
+		  if (done) {
+			new Notice("Text generation complete. Voila!");
+			return; 
+		  }
+  
+		  let textChunk = decoder.decode(value); 
+		  const lines = textChunk.split('\n');
+  
+		  for (const line of lines) {
+			if (line.trim()) {
+			  try {
+				  let modifiedLine = line.replace(/^data:\s*/, '');
+				  if (modifiedLine !== '[DONE]') {
+					  const data = JSON.parse(modifiedLine);
+					  if (data.choices[0].delta.content){
+						  let word = data.choices[0].delta.content;
+						  replaceSelectedText(word);
+					  }                    
+				  }
+			  } catch (error) {
+				console.error("Error parsing JSON chunk:", error);
+			  }
+			}
+		  }
+		  readChunk(); 
+		};
+		readChunk(); 
+  
+	  } else {
+		const response = await requestUrl({
+		  url: `http://${serverAddress}:${serverPort}/v1/chat/completions`,
+		  method: "POST",
+		  headers: { "Content-Type": "application/json" },
+		  body: JSON.stringify(body),
+		});
+  
+		const statusCode = response.status;
+  
+		if (statusCode >= 200 && statusCode < 300) {
+		  const data = await response.json();
+		  const summarizedText = data.choices[0].message.content; 
+		  console.log(summarizedText);
+		  new Notice("Text generated. Voila!");
+		  replaceSelectedText(summarizedText);
+		} else {
+		  throw new Error("Error summarizing text (requestUrl): " + response.text);
+		}
+	  }
+  
+	} catch (error) {
+	  console.error("Error during request:", error);
 	  new Notice("Error summarizing text: Check plugin console for more details!");
-    }
-  } catch (error) {
-    console.error("Error during request:", error);
-	new Notice("Error summarizing text: Check plugin console for more details!");
+	}
   }
-}
+  
 
 
 function replaceSelectedText(text: any) {

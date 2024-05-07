@@ -248,7 +248,7 @@ async function processText(
 				);
 			}
 
-			const reader = response.body.getReader();
+			const reader = response.body && response.body.getReader();
 			if (!reader) {
 				console.error("Reader not found");
 			} else {

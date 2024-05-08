@@ -4,6 +4,10 @@ This plugin integrates a local Large Language Model (LLM) service with Obsidian 
 
 ### Features
 
+v1.0.5
+* Streaming capabilities (enable in plugin Settings)
+  
+v1.0.4
 * Summarize selected text in your Markdown notes.
 * Rephrase to make selected text sound professional
 * Generate text using selected text as prompt

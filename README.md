@@ -3,6 +3,10 @@
 This plugin integrates a local Large Language Model (LLM) service with Obsidian for summarizing and transforming text.
 
 ### Features
+v1.0.6
+* Custom prompt capability (enter your prompt in plugin Settings)
+* Generate action items - new prompt addition
+* Better status bar text updates
 
 v1.0.5
 * Streaming capabilities (enable in plugin Settings)

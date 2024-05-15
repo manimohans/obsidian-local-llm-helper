@@ -1,7 +1,7 @@
 {
 	"id": "local-llm-helper",
 	"name": "Local LLM Helper",
-	"version": "1.0.5",
+	"version": "1.0.6",
 	"minAppVersion": "1.5.12",
 	"description": "Use your own secure local LLM server to work with your text!",
 	"author": "Mani Mohan",

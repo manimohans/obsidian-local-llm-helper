@@ -19,6 +19,7 @@ interface OLocalLLMSettings {
 	serverPort: string;
 	llmModel: string;
 	stream: boolean;
+	customPrompt: string;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
@@ -26,6 +27,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverPort: "1234",
 	llmModel: "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
 	stream: false,
+	customPrompt: "create a todo list from the following text:",
 };
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -94,11 +96,51 @@ export default class OLocalLLMPlugin extends Plugin {
 					})
 			);
 
+			menu.addItem((item) =>
+				item
+					.setTitle("Generate action items")
+					.setIcon("list-todo")
+					.onClick(async () => {
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processText(
+								selectedText,
+								this.settings.serverAddress,
+								this.settings.serverPort,
+								this.settings.llmModel,
+								"Generate action items based on the following text (use or numbers based on context):",
+								this.settings.stream
+							);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Custom prompt")
+					.setIcon("pencil")
+					.onClick(async () => {
+						new Notice("Custom prompt: " + this.settings.customPrompt);
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processText(
+								selectedText,
+								this.settings.serverAddress,
+								this.settings.serverPort,
+								this.settings.llmModel,
+								this.settings.customPrompt,
+								this.settings.stream
+							);
+						}
+					})
+			);
+
+			
 			menu.showAtMouseEvent(event);
 		});
 
 		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("Local LLM Helper running");
+		statusBarItemEl.setText("LLM Helper: Ready");
 
 		this.addSettingTab(new OLLMSettingTab(this.app, this));
 	}
@@ -194,6 +236,19 @@ class OLLMSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+		
+		new Setting(containerEl)
+			.setName("Custom prompt")
+			.setDesc("create your own prompt - for your specific niche needs")
+			.addText((text) =>
+				text
+					.setPlaceholder("create action items from the following text:")
+					.setValue(this.plugin.settings.customPrompt) // Assuming there's a serverPort property in settings
+					.onChange(async (value) => {
+						this.plugin.settings.customPrompt = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
 		new Setting(containerEl)
 			.setName("Streaming")
@@ -220,6 +275,13 @@ async function processText(
 	stream: boolean
 ) {
 	new Notice("Generating response. This takes a few seconds..");
+	const statusBarItemEl = document.querySelector(".status-bar .status-bar-item");
+	if (statusBarItemEl) {
+		statusBarItemEl.textContent = "LLM Helper: Generating response...";
+	} else {
+		console.error("Status bar item element not found");
+	}
+
 	const body = {
 		model: modelName,
 		messages: [
@@ -313,6 +375,11 @@ async function processText(
 		new Notice(
 			"Error summarizing text: Check plugin console for more details!"
 		);
+	}
+	if (statusBarItemEl) {
+		statusBarItemEl.textContent = "LLM Helper: Ready";
+	} else {
+		console.error("Status bar item element not found");
 	}
 }
 

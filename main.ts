@@ -17,17 +17,17 @@ import {
 interface OLocalLLMSettings {
 	serverAddress: string;
 	serverPort: string;
-	llmModel: string;
 	stream: boolean;
 	customPrompt: string;
+	outputMode: string;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverAddress: "localhost",
 	serverPort: "1234",
-	llmModel: "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
 	stream: false,
 	customPrompt: "create a todo list from the following text:",
+	outputMode: "replace"
 };
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -46,9 +46,9 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
-						this.settings.llmModel,
 						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
-						this.settings.stream
+						this.settings.stream,
+						this.settings.outputMode
 					);
 				}
 			},
@@ -64,9 +64,9 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
-						this.settings.llmModel,
 						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
-						this.settings.stream
+						this.settings.stream,
+						this.settings.outputMode
 					);
 				}
 			},
@@ -82,9 +82,9 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
-						this.settings.llmModel,
 						"Generate action items based on the following text (use or numbers based on context):",
-						this.settings.stream
+						this.settings.stream,
+						this.settings.outputMode
 					);
 				}
 			},
@@ -101,9 +101,9 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
-						this.settings.llmModel,
 						this.settings.customPrompt,
-						this.settings.stream
+						this.settings.stream,
+						this.settings.outputMode
 					);
 				}
 			},
@@ -119,9 +119,9 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
-						this.settings.llmModel,
 						"Generate response based on the following text. This is your prompt:",
-						this.settings.stream
+						this.settings.stream,
+						this.settings.outputMode
 					);
 				}
 			},
@@ -141,9 +141,9 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
-								this.settings.llmModel,
 								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
-								this.settings.stream
+								this.settings.stream,
+								this.settings.outputMode
 							);
 						}
 					})
@@ -160,9 +160,9 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
-								this.settings.llmModel,
 								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
-								this.settings.stream
+								this.settings.stream,
+								this.settings.outputMode
 							);
 						}
 					})
@@ -179,9 +179,9 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
-								this.settings.llmModel,
 								"Generate response based on the following text. This is your prompt:",
-								this.settings.stream
+								this.settings.stream,
+								this.settings.outputMode
 							);
 						}
 					})
@@ -198,9 +198,9 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
-								this.settings.llmModel,
 								"Generate action items based on the following text (use or numbers based on context):",
-								this.settings.stream
+								this.settings.stream,
+								this.settings.outputMode
 							);
 						}
 					})
@@ -220,9 +220,9 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
-								this.settings.llmModel,
 								this.settings.customPrompt,
-								this.settings.stream
+								this.settings.stream,
+								this.settings.outputMode
 							);
 						}
 					})
@@ -317,19 +317,6 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("LLM model")
-			.setDesc("currently works with LM Studio - find model name there")
-			.addText((text) =>
-				text
-					.setPlaceholder("Model name")
-					.setValue(this.plugin.settings.llmModel) // Assuming there's a serverPort property in settings
-					.onChange(async (value) => {
-						this.plugin.settings.llmModel = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
 			.setName("Custom prompt")
 			.setDesc("create your own prompt - for your specific niche needs")
 			.addText((text) =>
@@ -357,6 +344,20 @@ class OLLMSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+		
+			new Setting(containerEl)
+            .setName("Output Mode")
+            .setDesc("Choose how to handle generated text")
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("replace", "Replace selected text")
+                    .addOption("append", "Append after selected text")
+                    .setValue(this.plugin.settings.outputMode)
+                    .onChange(async (value) => {
+                        this.plugin.settings.outputMode = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
 	}
 }
 
@@ -364,9 +365,10 @@ async function processText(
 	selectedText: string,
 	serverAddress: string,
 	serverPort: string,
-	modelName: string,
 	prompt: string,
-	stream: boolean
+	stream: boolean,
+	outputMode: string
+	
 ) {
 	new Notice("Generating response. This takes a few seconds..");
 	const statusBarItemEl = document.querySelector(
@@ -379,7 +381,7 @@ async function processText(
 	}
 
 	const body = {
-		model: modelName,
+		model: "",
 		messages: [
 			{ role: "system", content: "You are my text editor AI agent" },
 			{ role: "user", content: prompt + ": " + selectedText },
@@ -390,6 +392,9 @@ async function processText(
 	};
 
 	try {
+		if (outputMode === "append") {
+			modifySelectedText(selectedText);
+		}
 		if (stream) {
 			const response = await fetch(
 				`http://${serverAddress}:${serverPort}/v1/chat/completions`,
@@ -435,7 +440,7 @@ async function processText(
 									if (data.choices[0].delta.content) {
 										let word =
 											data.choices[0].delta.content;
-										replaceSelectedText(word);
+										modifySelectedText(word);
 									}
 								}
 							} catch (error) {
@@ -465,7 +470,7 @@ async function processText(
 				const summarizedText = data.choices[0].message.content;
 				console.log(summarizedText);
 				new Notice("Text generated. Voila!");
-				replaceSelectedText(summarizedText);
+				modifySelectedText(summarizedText);
 			} else {
 				throw new Error(
 					"Error summarizing text (requestUrl): " + response.text
@@ -485,7 +490,7 @@ async function processText(
 	}
 }
 
-function replaceSelectedText(text: any) {
+function modifySelectedText(text: any) {
 	let view = this.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) {
 		new Notice("No active view");

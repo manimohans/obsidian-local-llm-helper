@@ -36,6 +36,97 @@ export default class OLocalLLMPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		this.addCommand({
+			id: "summarize-selected-text",
+			name: "Summarize selected text",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processText(
+						selectedText,
+						this.settings.serverAddress,
+						this.settings.serverPort,
+						this.settings.llmModel,
+						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
+						this.settings.stream
+					);
+				}
+			},
+		});
+
+		this.addCommand({
+			id: "makeitprof-selected-text",
+			name: "Make selected text sound professional",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processText(
+						selectedText,
+						this.settings.serverAddress,
+						this.settings.serverPort,
+						this.settings.llmModel,
+						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
+						this.settings.stream
+					);
+				}
+			},
+		});
+
+		this.addCommand({
+			id: "actionitems-selected-text",
+			name: "Generate action items from selected text",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processText(
+						selectedText,
+						this.settings.serverAddress,
+						this.settings.serverPort,
+						this.settings.llmModel,
+						"Generate action items based on the following text (use or numbers based on context):",
+						this.settings.stream
+					);
+				}
+			},
+		});
+
+		this.addCommand({
+			id: "custom-selected-text",
+			name: "Run Custom prompt (from settings) on selected text",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				new Notice("Custom prompt: " + this.settings.customPrompt);
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processText(
+						selectedText,
+						this.settings.serverAddress,
+						this.settings.serverPort,
+						this.settings.llmModel,
+						this.settings.customPrompt,
+						this.settings.stream
+					);
+				}
+			},
+		});
+
+		this.addCommand({
+			id: "gentext-selected-text",
+			name: "Use SELECTED text as your prompt",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processText(
+						selectedText,
+						this.settings.serverAddress,
+						this.settings.serverPort,
+						this.settings.llmModel,
+						"Generate response based on the following text. This is your prompt:",
+						this.settings.stream
+					);
+				}
+			},
+		});
+
 		this.addRibbonIcon("brain-cog", "LLM Context", (event) => {
 			const menu = new Menu();
 
@@ -79,7 +170,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
-					.setTitle("Generate text")
+					.setTitle("Use as prompt")
 					.setIcon("lightbulb")
 					.onClick(async () => {
 						let selectedText = this.getSelectedText();
@@ -89,7 +180,7 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.serverAddress,
 								this.settings.serverPort,
 								this.settings.llmModel,
-								"Generate text based on the following text:",
+								"Generate response based on the following text. This is your prompt:",
 								this.settings.stream
 							);
 						}
@@ -120,7 +211,9 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Custom prompt")
 					.setIcon("pencil")
 					.onClick(async () => {
-						new Notice("Custom prompt: " + this.settings.customPrompt);
+						new Notice(
+							"Custom prompt: " + this.settings.customPrompt
+						);
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(
@@ -135,7 +228,6 @@ export default class OLocalLLMPlugin extends Plugin {
 					})
 			);
 
-			
 			menu.showAtMouseEvent(event);
 		});
 
@@ -236,13 +328,15 @@ class OLLMSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
-		
+
 		new Setting(containerEl)
 			.setName("Custom prompt")
 			.setDesc("create your own prompt - for your specific niche needs")
 			.addText((text) =>
 				text
-					.setPlaceholder("create action items from the following text:")
+					.setPlaceholder(
+						"create action items from the following text:"
+					)
 					.setValue(this.plugin.settings.customPrompt) // Assuming there's a serverPort property in settings
 					.onChange(async (value) => {
 						this.plugin.settings.customPrompt = value;
@@ -275,7 +369,9 @@ async function processText(
 	stream: boolean
 ) {
 	new Notice("Generating response. This takes a few seconds..");
-	const statusBarItemEl = document.querySelector(".status-bar .status-bar-item");
+	const statusBarItemEl = document.querySelector(
+		".status-bar .status-bar-item"
+	);
 	if (statusBarItemEl) {
 		statusBarItemEl.textContent = "LLM Helper: Generating response...";
 	} else {
@@ -316,38 +412,44 @@ async function processText(
 			} else {
 				const decoder = new TextDecoder();
 
-			const readChunk = async () => {
-				const { done, value } = await reader.read();
+				const readChunk = async () => {
+					const { done, value } = await reader.read();
 
-				if (done) {
-					new Notice("Text generation complete. Voila!");
-					return;
-				}
+					if (done) {
+						new Notice("Text generation complete. Voila!");
+						return;
+					}
 
-				let textChunk = decoder.decode(value);
-				const lines = textChunk.split("\n");
+					let textChunk = decoder.decode(value);
+					const lines = textChunk.split("\n");
 
-				for (const line of lines) {
-					if (line.trim()) {
-						try {
-							let modifiedLine = line.replace(/^data:\s*/, "");
-							if (modifiedLine !== "[DONE]") {
-								const data = JSON.parse(modifiedLine);
-								if (data.choices[0].delta.content) {
-									let word = data.choices[0].delta.content;
-									replaceSelectedText(word);
+					for (const line of lines) {
+						if (line.trim()) {
+							try {
+								let modifiedLine = line.replace(
+									/^data:\s*/,
+									""
+								);
+								if (modifiedLine !== "[DONE]") {
+									const data = JSON.parse(modifiedLine);
+									if (data.choices[0].delta.content) {
+										let word =
+											data.choices[0].delta.content;
+										replaceSelectedText(word);
+									}
 								}
+							} catch (error) {
+								console.error(
+									"Error parsing JSON chunk:",
+									error
+								);
 							}
-						} catch (error) {
-							console.error("Error parsing JSON chunk:", error);
 						}
 					}
-				}
+					readChunk();
+				};
 				readChunk();
-			};
-			readChunk();
 			}
-			
 		} else {
 			const response = await requestUrl({
 				url: `http://${serverAddress}:${serverPort}/v1/chat/completions`,

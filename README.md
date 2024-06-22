@@ -3,6 +3,10 @@
 This plugin integrates a local Large Language Model (LLM) service with Obsidian for summarizing and transforming text.
 
 ### Features
+v1.0.7
+* Generate text button is updated to more meaningful text
+* Command palette can now be accessed to use all the functionalities that were present before.
+
 v1.0.6
 * Custom prompt capability (enter your prompt in plugin Settings)
 * Generate action items - new prompt addition

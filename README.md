@@ -3,6 +3,9 @@
 This plugin integrates a local Large Language Model (LLM) service with Obsidian for summarizing and transforming text.
 
 ### Features
+v1.0.9
+* Added personas to choose from - available in Settings menu (raise issue for new persona needs)
+
 v1.0.8
 * Removed model name specification - it doesn't matter if you're using LMStudio.
 * You can now choose whether to replace or append to the selected text.

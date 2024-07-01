@@ -20,6 +20,7 @@ interface OLocalLLMSettings {
 	stream: boolean;
 	customPrompt: string;
 	outputMode: string;
+	personas: string;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
@@ -27,7 +28,8 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverPort: "1234",
 	stream: false,
 	customPrompt: "create a todo list from the following text:",
-	outputMode: "replace"
+	outputMode: "replace",
+	personas: "default"
 };
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -48,7 +50,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.serverPort,
 						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
-						this.settings.outputMode
+						this.settings.outputMode,
+						this.settings.personas
 					);
 				}
 			},
@@ -66,7 +69,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.serverPort,
 						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
-						this.settings.outputMode
+						this.settings.outputMode,
+						this.settings.personas
 					);
 				}
 			},
@@ -84,7 +88,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.serverPort,
 						"Generate action items based on the following text (use or numbers based on context):",
 						this.settings.stream,
-						this.settings.outputMode
+						this.settings.outputMode,
+						this.settings.personas
 					);
 				}
 			},
@@ -103,7 +108,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.serverPort,
 						this.settings.customPrompt,
 						this.settings.stream,
-						this.settings.outputMode
+						this.settings.outputMode,
+						this.settings.personas
 					);
 				}
 			},
@@ -121,7 +127,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.serverPort,
 						"Generate response based on the following text. This is your prompt:",
 						this.settings.stream,
-						this.settings.outputMode
+						this.settings.outputMode,
+						this.settings.personas
 					);
 				}
 			},
@@ -143,7 +150,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.serverPort,
 								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
-								this.settings.outputMode
+								this.settings.outputMode,
+								this.settings.personas
 							);
 						}
 					})
@@ -162,7 +170,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.serverPort,
 								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
-								this.settings.outputMode
+								this.settings.outputMode,
+								this.settings.personas
 							);
 						}
 					})
@@ -181,7 +190,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.serverPort,
 								"Generate response based on the following text. This is your prompt:",
 								this.settings.stream,
-								this.settings.outputMode
+								this.settings.outputMode,
+								this.settings.personas
 							);
 						}
 					})
@@ -200,7 +210,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.serverPort,
 								"Generate action items based on the following text (use or numbers based on context):",
 								this.settings.stream,
-								this.settings.outputMode
+								this.settings.outputMode,
+								this.settings.personas
 							);
 						}
 					})
@@ -222,7 +233,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.serverPort,
 								this.settings.customPrompt,
 								this.settings.stream,
-								this.settings.outputMode
+								this.settings.outputMode,
+								this.settings.personas
 							);
 						}
 					})
@@ -358,6 +370,30 @@ class OLLMSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     })
             );
+
+			new Setting(containerEl)
+            .setName("Personas")
+            .setDesc("Choose persona for your AI agent")
+            .addDropdown((dropdown) =>
+                dropdown
+					.addOption("default", "Default")
+                    .addOption("physics", "Physics expert")
+                    .addOption("fitness", "Fitness expert")
+					.addOption("developer", "Software Developer")
+					.addOption("stoic", "Stoic Philosopher")
+					.addOption("productmanager", "Product Manager")
+					.addOption("techwriter", "Technical Writer")
+					.addOption("creativewriter", "Creative Writer")
+					.addOption("tpm", "Technical Program Manager")
+					.addOption("engineeringmanager", "Engineering Manager")
+					.addOption("executive", "Executive")
+					.addOption("officeassistant", "Office Assistant")
+                    .setValue(this.plugin.settings.personas)
+                    .onChange(async (value) => {
+                        this.plugin.settings.personas = value;
+                        await this.plugin.saveSettings();
+                    })
+            );
 	}
 }
 
@@ -367,7 +403,8 @@ async function processText(
 	serverPort: string,
 	prompt: string,
 	stream: boolean,
-	outputMode: string
+	outputMode: string,
+	personas: string
 	
 ) {
 	new Notice("Generating response. This takes a few seconds..");
@@ -379,6 +416,36 @@ async function processText(
 	} else {
 		console.error("Status bar item element not found");
 	}
+
+	if (personas === "default") {
+		prompt = "" + prompt;
+	} else if (personas === "physics") {
+		prompt = "Respond like a distinguished physics scientist. \n " + prompt;
+	} else if (personas === "fitness") {
+		prompt = "Respond like a distinguished fitness + health expert. \n " + prompt;
+	} else if (personas === "developer") {
+		prompt = "Respond like a nerdy software developer. \n " + prompt;
+	} else if (personas === "stoic") {
+		prompt = "Respond like a stoic philosopher. \n " + prompt;
+	} else if (personas === "productmanager") {
+		prompt = "Respond like a focused and experienced product manager. \n " + prompt;
+	} else if (personas === "techwriter") {
+		prompt = "Respond like a technical writer. \n " + prompt;
+	} else if (personas === "creativewriter") {
+		prompt = "Respond like a very creative and experienced writer. \n " + prompt;
+	} else if (personas === "tpm") {
+		prompt = "Respond like an experienced technical program manager. \n " + prompt;
+	} else if (personas === "engineeringmanager") {
+		prompt = "Respond like an experienced engineering manager. \n " + prompt;
+	} else if (personas === "executive") {
+		prompt = "Respond like a top level executive. \n " + prompt;
+	} else if (personas === "officeassistant") {
+		prompt = "Respond like a courteous and helpful office assistant. \n " + prompt;
+	} else {
+		prompt = "" + prompt;
+	}
+
+	console.log("prompt", prompt + ": " + selectedText);
 
 	const body = {
 		model: "",

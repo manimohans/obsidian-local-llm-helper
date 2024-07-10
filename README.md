@@ -3,6 +3,10 @@
 This plugin integrates a local Large Language Model (LLM) service with Obsidian for summarizing and transforming text.
 
 ### Features
+v1.0.10
+* Ollama support + support for all LLM servers that support OpenAI API /v1/chat/completions endpoint.
+* Better prompts for available personas.
+
 v1.0.9
 * Added personas to choose from - available in Settings menu (raise issue for new persona needs)
 

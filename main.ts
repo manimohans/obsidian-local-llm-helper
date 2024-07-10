@@ -17,6 +17,7 @@ import {
 interface OLocalLLMSettings {
 	serverAddress: string;
 	serverPort: string;
+	llmModel: string;
 	stream: boolean;
 	customPrompt: string;
 	outputMode: string;
@@ -26,6 +27,7 @@ interface OLocalLLMSettings {
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverAddress: "localhost",
 	serverPort: "1234",
+	llmModel: "llama3",
 	stream: false,
 	customPrompt: "create a todo list from the following text:",
 	outputMode: "replace",
@@ -48,6 +50,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
+						this.settings.llmModel,
 						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
 						this.settings.outputMode,
@@ -67,6 +70,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
+						this.settings.llmModel,
 						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
 						this.settings.outputMode,
@@ -86,6 +90,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
+						this.settings.llmModel,
 						"Generate action items based on the following text (use or numbers based on context):",
 						this.settings.stream,
 						this.settings.outputMode,
@@ -106,6 +111,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
+						this.settings.llmModel,
 						this.settings.customPrompt,
 						this.settings.stream,
 						this.settings.outputMode,
@@ -125,6 +131,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						selectedText,
 						this.settings.serverAddress,
 						this.settings.serverPort,
+						this.settings.llmModel,
 						"Generate response based on the following text. This is your prompt:",
 						this.settings.stream,
 						this.settings.outputMode,
@@ -148,6 +155,7 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
+								this.settings.llmModel,
 								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
 								this.settings.outputMode,
@@ -168,6 +176,7 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
+								this.settings.llmModel,
 								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
 								this.settings.outputMode,
@@ -188,6 +197,7 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
+								this.settings.llmModel,
 								"Generate response based on the following text. This is your prompt:",
 								this.settings.stream,
 								this.settings.outputMode,
@@ -208,6 +218,7 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
+								this.settings.llmModel,
 								"Generate action items based on the following text (use or numbers based on context):",
 								this.settings.stream,
 								this.settings.outputMode,
@@ -231,6 +242,7 @@ export default class OLocalLLMPlugin extends Plugin {
 								selectedText,
 								this.settings.serverAddress,
 								this.settings.serverPort,
+								this.settings.llmModel,
 								this.settings.customPrompt,
 								this.settings.stream,
 								this.settings.outputMode,
@@ -303,7 +315,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Server address")
-			.setDesc("localhost or remote (do not include http://)")
+			.setDesc("localhost or remote (do not include http://). Supports any LLM server that is compatible with OpenAI chat completions API (e.g. LM Studio, Ollama).")
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter details")
@@ -317,13 +329,26 @@ class OLLMSettingTab extends PluginSettingTab {
 		// Add a new setting for another text input
 		new Setting(containerEl)
 			.setName("Server port")
-			.setDesc("Port number for the LLM server")
+			.setDesc("Port number for the LLM server. (make sure to use the proper port number - for LM studio, the default is 1234, for Ollama, the default is 11434.)")
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter port number")
 					.setValue(this.plugin.settings.serverPort) // Assuming there's a serverPort property in settings
 					.onChange(async (value) => {
 						this.plugin.settings.serverPort = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("LLM model")
+			.setDesc("Use this for Ollama and other servers that require this. LMStudio seems to ignore model name.")
+			.addText((text) =>
+				text
+					.setPlaceholder("Model name")
+					.setValue(this.plugin.settings.llmModel) // Assuming there's a serverPort property in settings
+					.onChange(async (value) => {
+						this.plugin.settings.llmModel = value;
 						await this.plugin.saveSettings();
 					})
 			);
@@ -401,6 +426,7 @@ async function processText(
 	selectedText: string,
 	serverAddress: string,
 	serverPort: string,
+	modelName: string,
 	prompt: string,
 	stream: boolean,
 	outputMode: string,
@@ -418,37 +444,38 @@ async function processText(
 	}
 
 	if (personas === "default") {
-		prompt = "" + prompt;
-	} else if (personas === "physics") {
-		prompt = "Respond like a distinguished physics scientist. \n " + prompt;
-	} else if (personas === "fitness") {
-		prompt = "Respond like a distinguished fitness + health expert. \n " + prompt;
-	} else if (personas === "developer") {
-		prompt = "Respond like a nerdy software developer. \n " + prompt;
-	} else if (personas === "stoic") {
-		prompt = "Respond like a stoic philosopher. \n " + prompt;
-	} else if (personas === "productmanager") {
-		prompt = "Respond like a focused and experienced product manager. \n " + prompt;
-	} else if (personas === "techwriter") {
-		prompt = "Respond like a technical writer. \n " + prompt;
-	} else if (personas === "creativewriter") {
-		prompt = "Respond like a very creative and experienced writer. \n " + prompt;
-	} else if (personas === "tpm") {
-		prompt = "Respond like an experienced technical program manager. \n " + prompt;
-	} else if (personas === "engineeringmanager") {
-		prompt = "Respond like an experienced engineering manager. \n " + prompt;
-	} else if (personas === "executive") {
-		prompt = "Respond like a top level executive. \n " + prompt;
-	} else if (personas === "officeassistant") {
-		prompt = "Respond like a courteous and helpful office assistant. \n " + prompt;
-	} else {
-		prompt = "" + prompt;
-	}
+		prompt = prompt; // No prompt modification for default persona
+	  } else if (personas === "physics") {
+		prompt = "**You are a distinguished physics scientist.** Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n" + prompt;
+	  } else if (personas === "fitness") {
+		prompt = "**You are a distinguished fitness and health expert.** Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + prompt;
+	  } else if (personas === "developer") {
+		prompt = "**You are a nerdy software developer.** Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + prompt;
+	  } else if (personas === "stoic") {
+		prompt = "**You are a stoic philosopher.** Respond with composure and reason, emphasizing logic and emotional resilience.\n" + prompt;
+	  } else if (personas === "productmanager") {
+		prompt = "**You are a focused and experienced product manager.** Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + prompt;
+	  } else if (personas === "techwriter") {
+		prompt = "**You are a technical writer.** Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + prompt;
+	  } else if (personas === "creativewriter") {
+		prompt = "**You are a very creative and experienced writer.** Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + prompt;
+	  } else if (personas === "tpm") {
+		prompt = "**You are an experienced technical program manager.** Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + prompt;
+	  } else if (personas === "engineeringmanager") {
+		prompt = "**You are an experienced engineering manager.** Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + prompt;
+	  } else if (personas === "executive") {
+		prompt = "**You are a top-level executive.** Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + prompt;
+	  } else if (personas === "officeassistant") {
+		prompt = "**You are a courteous and helpful office assistant.** Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
+	  } else {
+		prompt = prompt; // No prompt modification for unknown personas
+	  }
+	  
 
 	console.log("prompt", prompt + ": " + selectedText);
 
 	const body = {
-		model: "",
+		model: modelName,
 		messages: [
 			{ role: "system", content: "You are my text editor AI agent" },
 			{ role: "user", content: prompt + ": " + selectedText },

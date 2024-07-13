@@ -39,6 +39,11 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 
 
 ## Release notes
+v1.1.01
+* Major update: LLM chat functionality that works with available personas
+* New UI for chat interaction : typing indicators, response formatting, modern look for chat interface
+* Streamlined personas related code
+* CSS styling added for different parts of the plugin
 
 v1.0.10
 * Ollama support + support for all LLM servers that support OpenAI API /v1/chat/completions endpoint.

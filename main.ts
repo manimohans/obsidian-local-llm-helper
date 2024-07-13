@@ -12,8 +12,6 @@ import {
 	requestUrl,
 } from "obsidian";
 
-import "./styles.css";
-
 // Remember to rename these classes and interfaces!
 
 interface OLocalLLMSettings {

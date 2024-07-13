@@ -1,8 +1,45 @@
-## Local LLM Helper - Obsidian Plugin
+# Local LLM Helper - Obsidian Plugin
 
-This plugin integrates a local Large Language Model (LLM) service with Obsidian for summarizing and transforming text.
+Seamlessly integrate your local LLM with Obsidian. Process large text chunks, transform content with AI, and maintain data privacy — all without leaving your notes.
 
-### Features
+## Core Features
+
+#### Local LLM Integration:
+* Compatible with OpenAI-like Servers: Works with local LLM servers like Ollama and LM Studio, providing privacy and offline flexibility.
+* Model Selection: Users can specify the LLM model to use, tailoring the experience to their needs and hardware.
+#### Text Processing Commands:
+* Summarization: Condenses selected text while maintaining essential information and markdown formatting.
+* Professional Tone Adjustment: Rewrites selected text to sound more formal and polished.
+* Action Item Generation: Creates a structured list of actionable tasks from text.
+* Custom Prompts: Allows users to define and execute their own prompts for specialized tasks.
+* Prompt-as-Input: Uses the selected text directly as a prompt for creative text generation.
+
+<img width="704" alt="image" src="https://github.com/user-attachments/assets/b55e305f-2f5c-4dab-9e67-251613065c67">
+
+#### LLM Chat Interface:
+* Interactive Chat Window: Engages in multi-turn conversations with the LLM for dynamic interaction.
+* Conversation History: Keeps track of past messages within the same session.
+
+<img width="577" alt="image" src="https://github.com/user-attachments/assets/b52b80db-b9a2-4986-8bb2-04aae264afcd">
+
+#### Ribbon Menu and Status Bar:
+* Ribbon Menu: Provides quick access to common commands and the chat interface.
+* Status Bar: Displays the plugin's current status (ready or generating response).
+
+<img width="191" alt="image" src="https://github.com/user-attachments/assets/953422d4-b15c-477d-8b28-f6b3f4f76b02">
+
+#### Plugin Settings:
+* Server Configuration: Easily set the server address, port, and model name.
+* Custom Prompt: Define a personalized prompt for repeated use.
+* Streaming Output: Toggle real-time, word-by-word output (experimental).
+* Output Mode: Choose to replace or append the generated text to the selection.
+* Personas: Select different personas to tailor the AI's response style.
+
+<img width="838" alt="image" src="https://github.com/user-attachments/assets/8d5f582a-354d-4edd-aad4-e6c5fcbf228f">
+
+
+## Release notes
+
 v1.0.10
 * Ollama support + support for all LLM servers that support OpenAI API /v1/chat/completions endpoint.
 * Better prompts for available personas.
@@ -32,35 +69,31 @@ v1.0.4
 * Generate text using selected text as prompt
 * Access various LLM functionalities through a ribbon icon.
 
-### Installation
+## Installation
 
 Search for Local LLM Helper in Community plugins.
 Install the plugin and enable it, to use with your vault.
 
-<img width="919" alt="image" src="https://github.com/manimohans/obsidian-local-llm-helper/assets/19580586/456aecd3-1dd2-4266-897a-954ccf664ea6">
+## Usage
 
+1. Select the text you want to process in your Markdown note (make sure to visit Settings page to make sure everything looks alright).
+2. Click the plugin icon in the ribbon bar (brain icon) and choose the desired action.
+3. Use LLM Chat with side interactions.
 
-### Usage
-
-1. Select the text you want to process in your Markdown note.
-2. Click the plugin icon in the ribbon bar (brain icon) and choose the desired action:
-    * Summarize
-    * Make it Professional
-    * Generate Text
-
-### Configuration
+## Configuration
 
 The plugin settings allow you to specify the server address, port, and LLM model name used for processing. 
-For v1, the LLM need to be running on LMStudio (lmstudio.ai). In future release, we will support other local LLM servers.
+The code currently supports all LLM servers that supports OpenAI API /v1/chat/completions endpoint.
 
 1. Go to Settings > Obsidian LLM Helper.
 2. Enter the details for your LLM server.
-3. Choose the appropriate LLM model name from your server (refer to your LM Studio documentation). I have noticed this doesn't matter at times.
-4. Click "Save" to apply the changes.
+3. Choose the appropriate LLM model name from your server (if needed).
+4. Select personas if needed.
+5. Change replace/append based on preference.
 
 **Note:** You'll need to set up and configure your own LLM server for this plugin to function.
 
-### Development
+## Development
 
 Feel free to clone the repository and modify the code to suit your needs. The code utilizes the following Obsidian API elements:
 
@@ -74,6 +107,6 @@ Feel free to clone the repository and modify the code to suit your needs. The co
 * `Setting`
 * `View`
 
-### License
+## License
 
 This plugin is distributed under the MIT license. See the LICENSE file for details.

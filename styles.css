@@ -10,6 +10,7 @@
 .llmChatMessageStyleUser { 
     border-radius: 15px;
 	background-color: #000066;
+    color: white;
 	padding: 10px;
 	margin-bottom: 20px;
 	margin-top: 20px;
@@ -21,6 +22,7 @@
 .llmChatMessageStyleAI {
     border-radius: 15px;
 	background-color: #003300;
+    color: white;
 	padding: 10px;
 	margin-bottom: 20px;
 	margin-top: 20px;

@@ -39,7 +39,7 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 
 
 ## Release notes
-v1.1.01
+v1.1.1 and v1.1.2
 * Major update: LLM chat functionality that works with available personas
 * New UI for chat interaction : typing indicators, response formatting, modern look for chat interface
 * Streamlined personas related code

@@ -34,8 +34,24 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	personas: "default"
 };
 
+const personasDict: { [key: string]: string } = {
+    "default": "Default",
+    "physics": "Physics expert",
+    "fitness": "Fitness expert",
+    "developer": "Software Developer",
+    "stoic": "Stoic Philosopher",
+    "productmanager": "Product Manager",
+    "techwriter": "Technical Writer",
+    "creativewriter": "Creative Writer",
+    "tpm": "Technical Program Manager",
+    "engineeringmanager": "Engineering Manager",
+    "executive": "Executive",
+    "officeassistant": "Office Assistant"
+};
+
 export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
+	modal: any;
 
 	async onload() {
 		await this.loadSettings();
@@ -141,8 +157,26 @@ export default class OLocalLLMPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: "llm-chat",
+			name: "Chat with Local LLM Helper",
+			callback: () => {
+			  const chatModal = new LLMChatModal(this.app, this.settings);
+			  chatModal.open();
+			},
+		  });
+
 		this.addRibbonIcon("brain-cog", "LLM Context", (event) => {
 			const menu = new Menu();
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Chat with LLM Helper")
+					.setIcon("messages-square")
+					.onClick(() => {
+						new LLMChatModal(this.app, this.settings).open();
+					})
+			);
 
 			menu.addItem((item) =>
 				item
@@ -399,26 +433,48 @@ class OLLMSettingTab extends PluginSettingTab {
 			new Setting(containerEl)
             .setName("Personas")
             .setDesc("Choose persona for your AI agent")
-            .addDropdown((dropdown) =>
-                dropdown
-					.addOption("default", "Default")
-                    .addOption("physics", "Physics expert")
-                    .addOption("fitness", "Fitness expert")
-					.addOption("developer", "Software Developer")
-					.addOption("stoic", "Stoic Philosopher")
-					.addOption("productmanager", "Product Manager")
-					.addOption("techwriter", "Technical Writer")
-					.addOption("creativewriter", "Creative Writer")
-					.addOption("tpm", "Technical Program Manager")
-					.addOption("engineeringmanager", "Engineering Manager")
-					.addOption("executive", "Executive")
-					.addOption("officeassistant", "Office Assistant")
-                    .setValue(this.plugin.settings.personas)
+            .addDropdown(dropdown => {
+                for (const key in personasDict) { // Iterate over keys directly
+                    if (personasDict.hasOwnProperty(key)) { 
+                        dropdown.addOption(key, personasDict[key]); 
+                    }
+                }
+                dropdown.setValue(this.plugin.settings.personas)
                     .onChange(async (value) => {
                         this.plugin.settings.personas = value;
                         await this.plugin.saveSettings();
-                    })
-            );
+                    });
+            });
+	}
+}
+
+export function modifyPrompt(prompt: string, personas: string): string {
+	if (personas === "default") {
+		return prompt; // No prompt modification for default persona
+	} else if (personas === "physics") {
+		return "**You are a distinguished physics scientist.** Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n" + prompt;
+	} else if (personas === "fitness") {
+		return "**You are a distinguished fitness and health expert.** Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + prompt;
+	} else if (personas === "developer") {
+		return "**You are a nerdy software developer.** Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + prompt;
+	} else if (personas === "stoic") {
+		return "**You are a stoic philosopher.** Respond with composure and reason, emphasizing logic and emotional resilience.\n" + prompt;
+	} else if (personas === "productmanager") {
+		return "**You are a focused and experienced product manager.** Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + prompt;
+	} else if (personas === "techwriter") {
+		return "**You are a technical writer.** Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + prompt;
+	} else if (personas === "creativewriter") {
+		return "**You are a very creative and experienced writer.** Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + prompt;
+	} else if (personas === "tpm") {
+		return "**You are an experienced technical program manager.** Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + prompt;
+	} else if (personas === "engineeringmanager") {
+		return "**You are an experienced engineering manager.** Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + prompt;
+	} else if (personas === "executive") {
+		return "**You are a top-level executive.** Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + prompt;
+	} else if (personas === "officeassistant") {
+		return "**You are a courteous and helpful office assistant.** Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
+	} else {
+		return prompt; // No prompt modification for unknown personas
 	}
 }
 
@@ -443,35 +499,8 @@ async function processText(
 		console.error("Status bar item element not found");
 	}
 
-	if (personas === "default") {
-		prompt = prompt; // No prompt modification for default persona
-	  } else if (personas === "physics") {
-		prompt = "**You are a distinguished physics scientist.** Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n" + prompt;
-	  } else if (personas === "fitness") {
-		prompt = "**You are a distinguished fitness and health expert.** Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + prompt;
-	  } else if (personas === "developer") {
-		prompt = "**You are a nerdy software developer.** Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + prompt;
-	  } else if (personas === "stoic") {
-		prompt = "**You are a stoic philosopher.** Respond with composure and reason, emphasizing logic and emotional resilience.\n" + prompt;
-	  } else if (personas === "productmanager") {
-		prompt = "**You are a focused and experienced product manager.** Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + prompt;
-	  } else if (personas === "techwriter") {
-		prompt = "**You are a technical writer.** Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + prompt;
-	  } else if (personas === "creativewriter") {
-		prompt = "**You are a very creative and experienced writer.** Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + prompt;
-	  } else if (personas === "tpm") {
-		prompt = "**You are an experienced technical program manager.** Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + prompt;
-	  } else if (personas === "engineeringmanager") {
-		prompt = "**You are an experienced engineering manager.** Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + prompt;
-	  } else if (personas === "executive") {
-		prompt = "**You are a top-level executive.** Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + prompt;
-	  } else if (personas === "officeassistant") {
-		prompt = "**You are a courteous and helpful office assistant.** Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
-	  } else {
-		prompt = prompt; // No prompt modification for unknown personas
-	  }
-	  
-
+	prompt = modifyPrompt(prompt, personas);
+	
 	console.log("prompt", prompt + ": " + selectedText);
 
 	const body = {
@@ -603,3 +632,185 @@ function modifySelectedText(text: any) {
 		}
 	}
 }
+
+export class LLMChatModal extends Modal {
+	result: string = "";
+	pluginSettings: OLocalLLMSettings;
+	conversation: string[] = []; // Array to store conversation history
+	onSubmit: (result: string) => void;
+	
+
+	constructor(app: App, settings: OLocalLLMSettings) {
+		super(app);
+		this.pluginSettings = settings;
+	  }
+  
+	onOpen() {
+	  const { contentEl } = this;
+
+	  let textInputEl: HTMLInputElement | null = null;
+  
+	  const chatContainer = contentEl.createDiv({ cls: "llm-chat-container" });
+	  const chatHistoryEl = chatContainer.createDiv({ cls: "llm-chat-history" });
+
+	  chatHistoryEl.classList.add("chatHistoryElStyle");
+	  contentEl.classList.add("chatHistoryElStyle");
+  
+	  // Display existing conversation history (if any)
+	  chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
+
+	  const personasInfoEl = document.createElement('div');
+	  personasInfoEl.classList.add("personasInfoStyle");
+	  personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
+	  chatHistoryEl.appendChild(personasInfoEl);
+
+	  this.conversation.forEach((message) => {
+		chatHistoryEl.createEl("p", { text: message });
+	  });
+  
+	  new Setting(contentEl)
+		.setName("Ask:")
+		.addText((text) => {
+		  textInputEl = text.inputEl;
+		  text.onChange((value) => {
+			this.result = value;
+		  })
+		  textInputEl.classList.add("chatInputStyle");
+		});
+  
+	    new Setting(contentEl)
+    .addButton((btn) =>
+      btn
+        .setButtonText("Submit")
+        .setCta()
+        .onClick(async () => {
+          if (this.result.trim() === "") {
+            new Notice("Please enter a question.");
+            return;
+          }
+          await processChatInput(this.result, this.pluginSettings.personas, chatContainer, chatHistoryEl, this.conversation, this.pluginSettings);
+          this.result = ""; // Clear user input field
+
+		  if (textInputEl) {
+			textInputEl.value = "";
+		  }
+		  scrollToBottom(contentEl);
+
+        })
+    );
+
+	}
+  
+	onClose() {
+	  let { contentEl } = this;
+	  contentEl.empty();
+	}
+  }
+  
+  async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversation: string[], pluginSettings: OLocalLLMSettings) {
+	const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
+
+	// Add user's question to conversation history
+	conversation.push("You: " + text);
+	if (chatHistoryEl) {
+		const chatElement = document.createElement('div');
+		chatElement.classList.add('llmChatMessageStyleUser');
+		chatElement.innerHTML = text;
+		chatHistoryEl.appendChild(chatElement);
+	}
+
+	showThinkingIndicator(chatHistoryEl);
+
+	text = modifyPrompt(text, personas);
+	console.log(text);
+  
+	try {
+	  const body = {
+		model: pluginSettings.llmModel,
+		messages: [
+		  { role: "system", content: "I am your friendly LLM assistant." },
+		  { role: "user", content: text },
+		],
+		temperature: 0.7,
+		max_tokens: -1,
+		stream: false, // Set to false for chat window
+	  };
+
+  
+	  const response = await requestUrl({
+		url: `http://${pluginSettings.serverAddress}:${pluginSettings.serverPort}/v1/chat/completions`,
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	  });
+  
+	  const statusCode = response.status;
+  
+	  if (statusCode >= 200 && statusCode < 300) {
+		const data = await response.json;
+		const llmResponse = data.choices[0].message.content;
+  
+		// Convert LLM response to HTML
+		let formattedResponse = llmResponse;
+		//conver to html - bold
+		formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+		formattedResponse = formattedResponse.replace(/_(.*?)_/g, "<i>$1</i>");
+		formattedResponse = formattedResponse.replace(/\n\n/g, "<br><br>");
+
+		console.log("formattedResponse", formattedResponse);
+	  
+		// Add LLM response to conversation history with Markdown
+		conversation.push("LLM Helper: " + formattedResponse);
+		const chatElement = document.createElement('div');
+		chatElement.classList.add('llmChatMessageStyleAI');
+		chatElement.innerHTML = formattedResponse;
+		chatHistoryEl.appendChild(chatElement);
+		
+		hideThinkingIndicator(chatHistoryEl);
+
+	  } else {
+		throw new Error(
+		  "Error getting response from LLM server: " + response.text
+		);
+	  }
+	} catch (error) {
+	  console.error("Error during request:", error);
+	  new Notice(
+		"Error communicating with LLM Helper: Check plugin console for details!"
+	  );
+	  hideThinkingIndicator(chatHistoryEl);
+	}
+	  
+  }
+  
+function showThinkingIndicator(chatHistoryEl: HTMLElement) {
+	const thinkingIndicatorEl = document.createElement('div');
+	thinkingIndicatorEl.classList.add('thinking-indicator');
+	const tStr = ["Calculating the last digit of pi... just kidding",
+		 "Quantum entanglement engaged... thinking deeply", 
+		 "Reticulating splines... stand by", 
+		 "Consulting the Oracle",
+		"Entangling qubits... preparing for a quantum leap",
+		"Processing... yada yada yada... almost done",
+		"Processing... We're approaching singularity",
+		"Serenity now! Patience while we process",
+		"Calculating the probability of George getting a date",
+		"Asking my man Art Vandalay"];
+	// pick a random index between 0 and size of string array above
+	const randomIndex = Math.floor(Math.random() * tStr.length);
+	thinkingIndicatorEl.innerHTML = tStr[randomIndex] + '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span>'; // Inline HTML
+  
+	chatHistoryEl.appendChild(thinkingIndicatorEl);
+  }
+  
+  function hideThinkingIndicator(chatHistoryEl: HTMLElement) {
+	const thinkingIndicatorEl = chatHistoryEl.querySelector('.thinking-indicator');
+	if (thinkingIndicatorEl) {
+	  chatHistoryEl.removeChild(thinkingIndicatorEl);
+	}
+  }
+
+  function scrollToBottom(el: HTMLElement) {
+	console.log(el.scrollHeight);
+	el.scrollTop = el.scrollHeight;
+  }

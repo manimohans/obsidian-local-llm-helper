@@ -7,5 +7,8 @@
 	"author": "Mani Mohan",
 	"authorUrl": "https:/warpcast.com/mani",
 	"fundingUrl": "https://buymeacoffee.com/manee",
-	"isDesktopOnly": false
+	"isDesktopOnly": false,
+	"css": [
+        "style.css"
+    	]	
 }

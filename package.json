@@ -14,7 +14,7 @@
     "axios": "^1.6.8",
     "balanced-match": "^1.0.2",
     "brace-expansion": "^1.1.11",
-    "braces": "^3.0.2",
+    "braces": "^3.0.3",
     "builtin-modules": "^3.3.0",
     "callsites": "^3.1.0",
     "chalk": "^4.1.2",

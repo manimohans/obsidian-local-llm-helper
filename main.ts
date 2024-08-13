@@ -22,6 +22,13 @@ interface OLocalLLMSettings {
 	customPrompt: string;
 	outputMode: string;
 	personas: string;
+	maxConvHistory: number;
+	responseFormatting: boolean
+}
+
+interface ConversationEntry {
+	prompt: string;
+	response: string;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
@@ -31,7 +38,9 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	stream: false,
 	customPrompt: "create a todo list from the following text:",
 	outputMode: "replace",
-	personas: "default"
+	personas: "default",
+	maxConvHistory: 0,
+	responseFormatting: false
 };
 
 const personasDict: { [key: string]: string } = {
@@ -52,6 +61,7 @@ const personasDict: { [key: string]: string } = {
 export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
 	modal: any;
+	conversationHistory: ConversationEntry[] = [];
 
 	async onload() {
 		await this.loadSettings();
@@ -70,7 +80,10 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
 						this.settings.outputMode,
-						this.settings.personas
+						this.settings.personas,
+						this.conversationHistory,
+						this.settings.responseFormatting,
+						this.settings.maxConvHistory
 					);
 				}
 			},
@@ -90,7 +103,10 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
 						this.settings.outputMode,
-						this.settings.personas
+						this.settings.personas,
+						this.conversationHistory,
+						this.settings.responseFormatting,
+						this.settings.maxConvHistory
 					);
 				}
 			},
@@ -110,7 +126,10 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Generate action items based on the following text (use or numbers based on context):",
 						this.settings.stream,
 						this.settings.outputMode,
-						this.settings.personas
+						this.settings.personas,
+						this.conversationHistory,
+						this.settings.responseFormatting,
+						this.settings.maxConvHistory
 					);
 				}
 			},
@@ -131,7 +150,10 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.customPrompt,
 						this.settings.stream,
 						this.settings.outputMode,
-						this.settings.personas
+						this.settings.personas,
+						this.conversationHistory,
+						this.settings.responseFormatting,
+						this.settings.maxConvHistory
 					);
 				}
 			},
@@ -151,7 +173,10 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Generate response based on the following text. This is your prompt:",
 						this.settings.stream,
 						this.settings.outputMode,
-						this.settings.personas
+						this.settings.personas,
+						this.conversationHistory,
+						this.settings.responseFormatting,
+						this.settings.maxConvHistory
 					);
 				}
 			},
@@ -193,7 +218,10 @@ export default class OLocalLLMPlugin extends Plugin {
 								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
 								this.settings.outputMode,
-								this.settings.personas
+								this.settings.personas,
+								this.conversationHistory,
+								this.settings.responseFormatting,
+								this.settings.maxConvHistory
 							);
 						}
 					})
@@ -214,7 +242,10 @@ export default class OLocalLLMPlugin extends Plugin {
 								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
 								this.settings.outputMode,
-								this.settings.personas
+								this.settings.personas,
+								this.conversationHistory,
+								this.settings.responseFormatting,
+								this.settings.maxConvHistory
 							);
 						}
 					})
@@ -235,7 +266,10 @@ export default class OLocalLLMPlugin extends Plugin {
 								"Generate response based on the following text. This is your prompt:",
 								this.settings.stream,
 								this.settings.outputMode,
-								this.settings.personas
+								this.settings.personas,
+								this.conversationHistory,
+								this.settings.responseFormatting,
+								this.settings.maxConvHistory
 							);
 						}
 					})
@@ -256,7 +290,10 @@ export default class OLocalLLMPlugin extends Plugin {
 								"Generate action items based on the following text (use or numbers based on context):",
 								this.settings.stream,
 								this.settings.outputMode,
-								this.settings.personas
+								this.settings.personas,
+								this.conversationHistory,
+								this.settings.responseFormatting,
+								this.settings.maxConvHistory
 							);
 						}
 					})
@@ -280,7 +317,10 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.customPrompt,
 								this.settings.stream,
 								this.settings.outputMode,
-								this.settings.personas
+								this.settings.personas,
+								this.conversationHistory,
+								this.settings.responseFormatting,
+								this.settings.maxConvHistory
 							);
 						}
 					})
@@ -445,34 +485,70 @@ class OLLMSettingTab extends PluginSettingTab {
                         await this.plugin.saveSettings();
                     });
             });
+
+			new Setting(containerEl)
+				.setName("Max conversation history")
+				.setDesc("Maximum number of conversation history to store (0-3)")
+				.addDropdown((dropdown) =>
+					dropdown
+					.addOption("0", "0")
+					.addOption("1", "1")
+					.addOption("2", "2")
+					.addOption("3", "3")
+					.setValue(this.plugin.settings.maxConvHistory.toString()) // Assuming there's a serverPort property in settings
+					.onChange(async (value) => {
+						this.plugin.settings.maxConvHistory = parseInt(value);
+						await this.plugin.saveSettings();
+					})
+				);
+
+
+
+			//new settings for response formatting boolean default false
+
+			new Setting(containerEl)
+			.setName("Response Formatting")
+			.setDesc("Enable to format the response into a separate block")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.responseFormatting) 
+					.onChange(async (value) => {
+						this.plugin.settings.responseFormatting = value;
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 }
 
-export function modifyPrompt(prompt: string, personas: string): string {
+export function modifyPrompt(aprompt: string, personas: string, conversationHistory: { prompt: string; response: string }[], maxConvHistory: number): string {
+	let lastFewConversationHistory = conversationHistory.slice(-maxConvHistory).map(item => `${item.prompt}: ${item.response}`).join('\n\n');
+	console.log("\n\n##########\n\n")
+	let prompt = lastFewConversationHistory + '\n\n' + aprompt;
+	console.log("\n\n##########\n\n")
 	if (personas === "default") {
 		return prompt; // No prompt modification for default persona
 	} else if (personas === "physics") {
-		return "**You are a distinguished physics scientist.** Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n" + prompt;
+		return "You are a distinguished physics scientist. Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n\n" + prompt;
 	} else if (personas === "fitness") {
-		return "**You are a distinguished fitness and health expert.** Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + prompt;
+		return "You are a distinguished fitness and health expert. Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + prompt;
 	} else if (personas === "developer") {
-		return "**You are a nerdy software developer.** Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + prompt;
+		return "You are a nerdy software developer. Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + prompt;
 	} else if (personas === "stoic") {
-		return "**You are a stoic philosopher.** Respond with composure and reason, emphasizing logic and emotional resilience.\n" + prompt;
+		return "You are a stoic philosopher. Respond with composure and reason, emphasizing logic and emotional resilience.\n" + prompt;
 	} else if (personas === "productmanager") {
-		return "**You are a focused and experienced product manager.** Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + prompt;
+		return "You are a focused and experienced product manager. Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + prompt;
 	} else if (personas === "techwriter") {
-		return "**You are a technical writer.** Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + prompt;
+		return "You are a technical writer. Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + prompt;
 	} else if (personas === "creativewriter") {
-		return "**You are a very creative and experienced writer.** Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + prompt;
+		return "You are a very creative and experienced writer. Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + prompt;
 	} else if (personas === "tpm") {
-		return "**You are an experienced technical program manager.** Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + prompt;
+		return "You are an experienced technical program manager. Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + prompt;
 	} else if (personas === "engineeringmanager") {
-		return "**You are an experienced engineering manager.** Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + prompt;
+		return "You are an experienced engineering manager. Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + prompt;
 	} else if (personas === "executive") {
-		return "**You are a top-level executive.** Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + prompt;
+		return "You are a top-level executive. Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + prompt;
 	} else if (personas === "officeassistant") {
-		return "**You are a courteous and helpful office assistant.** Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
+		return "You are a courteous and helpful office assistant. Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
 	} else {
 		return prompt; // No prompt modification for unknown personas
 	}
@@ -483,11 +559,13 @@ async function processText(
 	serverAddress: string,
 	serverPort: string,
 	modelName: string,
-	prompt: string,
+	iprompt: string,
 	stream: boolean,
 	outputMode: string,
-	personas: string
-	
+	personas: string,
+	conversationHistory: { prompt: string; response: string }[],
+	responseFormatting: boolean,
+	maxConvHistory: number
 ) {
 	new Notice("Generating response. This takes a few seconds..");
 	const statusBarItemEl = document.querySelector(
@@ -498,8 +576,8 @@ async function processText(
 	} else {
 		console.error("Status bar item element not found");
 	}
-
-	prompt = modifyPrompt(prompt, personas);
+	
+	let prompt = modifyPrompt(iprompt, personas, conversationHistory, maxConvHistory);
 	
 	console.log("prompt", prompt + ": " + selectedText);
 
@@ -516,7 +594,10 @@ async function processText(
 
 	try {
 		if (outputMode === "append") {
-			modifySelectedText(selectedText);
+			modifySelectedText(selectedText + "\n\n");
+		}
+		if (responseFormatting === true) {
+			modifySelectedText("``` LLM Helper - generated response \n\n");
 		}
 		if (stream) {
 			const response = await fetch(
@@ -535,6 +616,7 @@ async function processText(
 			}
 
 			const reader = response.body && response.body.getReader();
+			let responseStr = "";
 			if (!reader) {
 				console.error("Reader not found");
 			} else {
@@ -545,6 +627,10 @@ async function processText(
 
 					if (done) {
 						new Notice("Text generation complete. Voila!");
+						updateConversationHistory(iprompt + ": " + selectedText, responseStr, conversationHistory, maxConvHistory);
+						if (responseFormatting === true) {
+							modifySelectedText("\n\n```");
+						}
 						return;
 					}
 
@@ -564,6 +650,7 @@ async function processText(
 										let word =
 											data.choices[0].delta.content;
 										modifySelectedText(word);
+										responseStr += word;
 									}
 								}
 							} catch (error) {
@@ -592,8 +679,13 @@ async function processText(
 				const data = await response.json;
 				const summarizedText = data.choices[0].message.content;
 				console.log(summarizedText);
+				updateConversationHistory(iprompt + ": " + selectedText, summarizedText, conversationHistory, maxConvHistory);
 				new Notice("Text generated. Voila!");
-				modifySelectedText(summarizedText);
+				if (responseFormatting === true) {
+					modifySelectedText(summarizedText + "\n\n```");
+				} else {
+					modifySelectedText(summarizedText);
+				}
 			} else {
 				throw new Error(
 					"Error summarizing text (requestUrl): " + response.text
@@ -721,7 +813,7 @@ export class LLMChatModal extends Modal {
 
 	showThinkingIndicator(chatHistoryEl);
 
-	text = modifyPrompt(text, personas);
+	text = modifyPrompt(text, personas, [], 0);
 	console.log(text);
   
 	try {
@@ -813,4 +905,13 @@ function showThinkingIndicator(chatHistoryEl: HTMLElement) {
   function scrollToBottom(el: HTMLElement) {
 	console.log(el.scrollHeight);
 	el.scrollTop = el.scrollHeight;
+  }
+
+  function updateConversationHistory(prompt: string, response: string, conversationHistory: { prompt: string; response: string }[], maxConvHistoryLength: number) {
+	conversationHistory.push({ prompt, response });
+  
+	// Limit history length to 3
+	if (conversationHistory.length > maxConvHistoryLength) {
+	  conversationHistory.shift();
+	}
   }

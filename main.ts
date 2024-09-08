@@ -802,6 +802,14 @@ export class LLMChatModal extends Modal {
 			this.result = value;
 		  })
 		  textInputEl.classList.add("chatInputStyle");
+
+		  // Add keypress event listener for Enter key
+		  textInputEl.addEventListener('keypress', (event) => {
+			if (event.key === 'Enter') {
+			  event.preventDefault();
+			  this.handleSubmit();
+			}
+		  });
 		});
   
 	    new Setting(contentEl)
@@ -809,20 +817,7 @@ export class LLMChatModal extends Modal {
       btn
         .setButtonText("Submit")
         .setCta()
-        .onClick(async () => {
-          if (this.result.trim() === "") {
-            new Notice("Please enter a question.");
-            return;
-          }
-          await processChatInput(this.result, this.pluginSettings.personas, chatContainer, chatHistoryEl, this.conversationHistory, this.pluginSettings);
-          this.result = ""; // Clear user input field
-
-		  if (textInputEl) {
-			textInputEl.value = "";
-		  }
-		  scrollToBottom(contentEl);
-
-        })
+        .onClick(() => this.handleSubmit())
     );
 
 	}
@@ -830,6 +825,33 @@ export class LLMChatModal extends Modal {
 	onClose() {
 	  let { contentEl } = this;
 	  contentEl.empty();
+	}
+
+	// New method to handle submission
+	async handleSubmit() {
+	  if (this.result.trim() === "") {
+		new Notice("Please enter a question.");
+		return;
+	  }
+	  
+	  const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
+	  if (chatHistoryEl) {
+		await processChatInput(
+		  this.result,
+		  this.pluginSettings.personas,
+		  this.contentEl,
+		  chatHistoryEl as HTMLElement,
+		  this.conversationHistory,
+		  this.pluginSettings
+		);
+		this.result = ""; // Clear user input field
+
+		const textInputEl = this.contentEl.querySelector('.chatInputStyle') as HTMLInputElement;
+		if (textInputEl) {
+		  textInputEl.value = "";
+		}
+		scrollToBottom(this.contentEl);
+	  }
 	}
   }
   

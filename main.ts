@@ -520,13 +520,9 @@ class OLLMSettingTab extends PluginSettingTab {
 	}
 }
 
-export function modifyPrompt(aprompt: string, personas: string, conversationHistory: { prompt: string; response: string }[], maxConvHistory: number): string {
-	let lastFewConversationHistory = conversationHistory.slice(-maxConvHistory).map(item => `${item.prompt}: ${item.response}`).join('\n\n');
-	console.log("\n\n##########\n\n")
-	let prompt = lastFewConversationHistory + '\n\n' + aprompt;
-	console.log("\n\n##########\n\n")
+export function modifyPrompt(aprompt: string, personas: string): string {
 	if (personas === "default") {
-		return prompt; // No prompt modification for default persona
+		return aprompt; // No prompt modification for default persona
 	} else if (personas === "physics") {
 		return "You are a distinguished physics scientist. Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n\n" + prompt;
 	} else if (personas === "fitness") {
@@ -550,7 +546,7 @@ export function modifyPrompt(aprompt: string, personas: string, conversationHist
 	} else if (personas === "officeassistant") {
 		return "You are a courteous and helpful office assistant. Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
 	} else {
-		return prompt; // No prompt modification for unknown personas
+		return aprompt; // No prompt modification for unknown personas
 	}
 }
 
@@ -563,7 +559,7 @@ async function processText(
 	stream: boolean,
 	outputMode: string,
 	personas: string,
-	conversationHistory: { prompt: string; response: string }[],
+	conversationHistory: ConversationEntry[],
 	responseFormatting: boolean,
 	maxConvHistory: number
 ) {
@@ -577,14 +573,19 @@ async function processText(
 		console.error("Status bar item element not found");
 	}
 	
-	let prompt = modifyPrompt(iprompt, personas, conversationHistory, maxConvHistory);
+	let prompt = modifyPrompt(iprompt, personas);
 	
-	console.log("prompt", prompt + ": " + selectedText);
+	//console.log("prompt", prompt + ": " + selectedText);
 
 	const body = {
 		model: modelName,
 		messages: [
-			{ role: "system", content: "You are my text editor AI agent" },
+			{ role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+			...conversationHistory.slice(-maxConvHistory).reduce((acc, entry) => {
+				acc.push({ role: "user", content: entry.prompt });
+				acc.push({ role: "assistant", content: entry.response });
+				return acc;
+			}, [] as { role: string; content: string }[]),
 			{ role: "user", content: prompt + ": " + selectedText },
 		],
 		temperature: 0.7,
@@ -627,7 +628,7 @@ async function processText(
 
 					if (done) {
 						new Notice("Text generation complete. Voila!");
-						updateConversationHistory(iprompt + ": " + selectedText, responseStr, conversationHistory, maxConvHistory);
+						updateConversationHistory(prompt + ": " + selectedText, responseStr, conversationHistory, maxConvHistory);
 						if (responseFormatting === true) {
 							modifySelectedText("\n\n```");
 						}
@@ -679,7 +680,7 @@ async function processText(
 				const data = await response.json;
 				const summarizedText = data.choices[0].message.content;
 				console.log(summarizedText);
-				updateConversationHistory(iprompt + ": " + selectedText, summarizedText, conversationHistory, maxConvHistory);
+				updateConversationHistory(prompt + ": " + selectedText, summarizedText, conversationHistory, maxConvHistory);
 				new Notice("Text generated. Voila!");
 				if (responseFormatting === true) {
 					modifySelectedText(summarizedText + "\n\n```");
@@ -728,7 +729,7 @@ function modifySelectedText(text: any) {
 export class LLMChatModal extends Modal {
 	result: string = "";
 	pluginSettings: OLocalLLMSettings;
-	conversation: string[] = []; // Array to store conversation history
+	conversationHistory: ConversationEntry[] = []; // Change this line
 	onSubmit: (result: string) => void;
 	
 
@@ -756,8 +757,12 @@ export class LLMChatModal extends Modal {
 	  personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
 	  chatHistoryEl.appendChild(personasInfoEl);
 
-	  this.conversation.forEach((message) => {
-		chatHistoryEl.createEl("p", { text: message });
+	  // Update this part to use conversationHistory
+	  this.conversationHistory.forEach((entry) => {
+		const userMessageEl = chatHistoryEl.createEl("p", { text: "You: " + entry.prompt });
+		userMessageEl.classList.add('llmChatMessageStyleUser');
+		const aiMessageEl = chatHistoryEl.createEl("p", { text: "LLM Helper: " + entry.response });
+		aiMessageEl.classList.add('llmChatMessageStyleAI');
 	  });
   
 	  new Setting(contentEl)
@@ -780,7 +785,7 @@ export class LLMChatModal extends Modal {
             new Notice("Please enter a question.");
             return;
           }
-          await processChatInput(this.result, this.pluginSettings.personas, chatContainer, chatHistoryEl, this.conversation, this.pluginSettings);
+          await processChatInput(this.result, this.pluginSettings.personas, chatContainer, chatHistoryEl, this.conversationHistory, this.pluginSettings);
           this.result = ""; // Clear user input field
 
 		  if (textInputEl) {
@@ -799,11 +804,11 @@ export class LLMChatModal extends Modal {
 	}
   }
   
-  async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversation: string[], pluginSettings: OLocalLLMSettings) {
+  async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings) {
 	const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
 
 	// Add user's question to conversation history
-	conversation.push("You: " + text);
+	conversationHistory.push({ prompt: text, response: "" });
 	if (chatHistoryEl) {
 		const chatElement = document.createElement('div');
 		chatElement.classList.add('llmChatMessageStyleUser');
@@ -813,14 +818,19 @@ export class LLMChatModal extends Modal {
 
 	showThinkingIndicator(chatHistoryEl);
 
-	text = modifyPrompt(text, personas, [], 0);
+	text = modifyPrompt(text, personas);
 	console.log(text);
   
 	try {
 	  const body = {
 		model: pluginSettings.llmModel,
 		messages: [
-		  { role: "system", content: "I am your friendly LLM assistant." },
+		  { role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+		  ...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
+			acc.push({ role: "user", content: entry.prompt });
+			acc.push({ role: "assistant", content: entry.response });
+			return acc;
+		  }, [] as { role: string; content: string }[]),
 		  { role: "user", content: text },
 		],
 		temperature: 0.7,
@@ -852,7 +862,7 @@ export class LLMChatModal extends Modal {
 		console.log("formattedResponse", formattedResponse);
 	  
 		// Add LLM response to conversation history with Markdown
-		conversation.push("LLM Helper: " + formattedResponse);
+		updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
 		const chatElement = document.createElement('div');
 		chatElement.classList.add('llmChatMessageStyleAI');
 		chatElement.innerHTML = formattedResponse;
@@ -907,10 +917,10 @@ function showThinkingIndicator(chatHistoryEl: HTMLElement) {
 	el.scrollTop = el.scrollHeight;
   }
 
-  function updateConversationHistory(prompt: string, response: string, conversationHistory: { prompt: string; response: string }[], maxConvHistoryLength: number) {
+  function updateConversationHistory(prompt: string, response: string, conversationHistory: ConversationEntry[], maxConvHistoryLength: number) {
 	conversationHistory.push({ prompt, response });
   
-	// Limit history length to 3
+	// Limit history length to maxConvHistoryLength
 	if (conversationHistory.length > maxConvHistoryLength) {
 	  conversationHistory.shift();
 	}

@@ -10,6 +10,7 @@ import {
 	Setting,
 	View,
 	requestUrl,
+	setIcon,
 } from "obsidian";
 
 // Remember to rename these classes and interfaces!
@@ -889,13 +890,32 @@ export class LLMChatModal extends Modal {
 
 		console.log("formattedResponse", formattedResponse);
 	  
+		// Create response container
+		const responseContainer = document.createElement('div');
+		responseContainer.classList.add('llmChatMessageStyleAI');
+
+		// Create response text element
+		const responseTextEl = document.createElement('div');
+		responseTextEl.innerHTML = formattedResponse;
+		responseContainer.appendChild(responseTextEl);
+
+		// Create copy button
+		const copyButton = document.createElement('button');
+		copyButton.classList.add('copy-button');
+		setIcon(copyButton, 'copy');
+		copyButton.addEventListener('click', () => {
+		  navigator.clipboard.writeText(llmResponse).then(() => {
+			new Notice('Copied to clipboard!');
+		  });
+		});
+		responseContainer.appendChild(copyButton);
+
+		// Add response container to chat history
+		chatHistoryEl.appendChild(responseContainer);
+
 		// Add LLM response to conversation history with Markdown
 		updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
-		const chatElement = document.createElement('div');
-		chatElement.classList.add('llmChatMessageStyleAI');
-		chatElement.innerHTML = formattedResponse;
-		chatHistoryEl.appendChild(chatElement);
-		
+
 		hideThinkingIndicator(chatHistoryEl);
 
 	  } else {

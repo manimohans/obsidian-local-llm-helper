@@ -20,6 +20,8 @@
 	font-style: italic;
 }
 .llmChatMessageStyleAI {
+    position: relative;
+    padding-bottom: 24px;
     border-radius: 15px;
 	background-color: #003300;
     color: white;
@@ -33,6 +35,27 @@
 .chatInputStyle {
     width: 100%;
 }
+.copy-button {
+    position: absolute;
+    bottom: 4px;
+    right: 4px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    opacity: 0.5;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.copy-button:hover {
+    opacity: 1;
+}
+
+.copy-button svg {
+    width: 16px;
+    height: 16px;
+}
+  
 .thinking-indicator {
     display: inline-block; /* Allow inline placement */
     margin-bottom: 10px;

@@ -75,7 +75,7 @@
     "lodash.merge": "^4.6.2",
     "lru-cache": "^6.0.0",
     "merge2": "^1.4.1",
-    "micromatch": "^4.0.5",
+    "micromatch": "^4.0.8",
     "minimatch": "^3.1.2",
     "moment": "^2.29.4",
     "ms": "^2.1.2",

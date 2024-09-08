@@ -504,43 +504,46 @@ class OLLMSettingTab extends PluginSettingTab {
 
 			//new settings for response formatting boolean default false
 
-			new Setting(containerEl)
-			.setName("Response Formatting")
-			.setDesc("Enable to format the response into a separate block")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.responseFormatting) 
-					.onChange(async (value) => {
-						this.plugin.settings.responseFormatting = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-			new Setting(containerEl)
-				.setName("Response Format Prepend")
-				.setDesc("Text to prepend to the formatted response")
-				.addText((text) =>
-					text
-						.setPlaceholder("``` LLM Helper - generated response \n\n")
-						.setValue(this.plugin.settings.responseFormatPrepend)
+			const responseFormattingToggle = new Setting(containerEl)
+				.setName("Response Formatting")
+				.setDesc("Enable to format the response into a separate block")
+				.addToggle((toggle) =>
+					toggle
+						.setValue(this.plugin.settings.responseFormatting)
 						.onChange(async (value) => {
-							this.plugin.settings.responseFormatPrepend = value;
+							this.plugin.settings.responseFormatting = value;
 							await this.plugin.saveSettings();
+							this.display(); // Refresh the settings tab
 						})
 				);
 
-			new Setting(containerEl)
-				.setName("Response Format Append")
-				.setDesc("Text to append to the formatted response")
-				.addText((text) =>
-					text
-						.setPlaceholder("\n\n```")
-						.setValue(this.plugin.settings.responseFormatAppend)
-						.onChange(async (value) => {
-							this.plugin.settings.responseFormatAppend = value;
-							await this.plugin.saveSettings();
-						})
-				);
+			if (this.plugin.settings.responseFormatting) {
+				new Setting(containerEl)
+					.setName("Response Format Prepend")
+					.setDesc("Text to prepend to the formatted response")
+					.addText((text) =>
+						text
+							.setPlaceholder("``` LLM Helper - generated response \n\n")
+							.setValue(this.plugin.settings.responseFormatPrepend)
+							.onChange(async (value) => {
+								this.plugin.settings.responseFormatPrepend = value;
+								await this.plugin.saveSettings();
+							})
+					);
+
+				new Setting(containerEl)
+					.setName("Response Format Append")
+					.setDesc("Text to append to the formatted response")
+					.addText((text) =>
+						text
+							.setPlaceholder("\n\n```")
+							.setValue(this.plugin.settings.responseFormatAppend)
+							.onChange(async (value) => {
+								this.plugin.settings.responseFormatAppend = value;
+								await this.plugin.saveSettings();
+							})
+					);
+			}
 	}
 }
 

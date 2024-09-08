@@ -7,6 +7,7 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 #### Local LLM Integration:
 * Compatible with OpenAI-like Servers: Works with local LLM servers like Ollama and LM Studio, providing privacy and offline flexibility.
 * Model Selection: Users can specify the LLM model to use, tailoring the experience to their needs and hardware.
+* Remember chat history up to 3 previous prompts and responses.
 #### Text Processing Commands:
 * Summarization: Condenses selected text while maintaining essential information and markdown formatting.
 * Professional Tone Adjustment: Rewrites selected text to sound more formal and polished.
@@ -34,11 +35,17 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 * Streaming Output: Toggle real-time, word-by-word output (experimental).
 * Output Mode: Choose to replace or append the generated text to the selection.
 * Personas: Select different personas to tailor the AI's response style.
+* Response formatting: Prepend/Append LLM responses.
 
 <img width="838" alt="image" src="https://github.com/user-attachments/assets/8d5f582a-354d-4edd-aad4-e6c5fcbf228f">
 
 
 ## Release notes
+v1.1.3
+* Chat history is now stored up to 3 previous prompts and responses.
+* Response formatting: Prepend/Append LLM responses.
+* Server port settings now removed. 
+
 v1.1.1 and v1.1.2
 * Major update: LLM chat functionality that works with available personas
 * New UI for chat interaction : typing indicators, response formatting, modern look for chat interface

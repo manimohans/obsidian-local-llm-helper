@@ -22,7 +22,9 @@ interface OLocalLLMSettings {
 	outputMode: string;
 	personas: string;
 	maxConvHistory: number;
-	responseFormatting: boolean
+	responseFormatting: boolean;
+	responseFormatPrepend: string;
+	responseFormatAppend: string;
 }
 
 interface ConversationEntry {
@@ -38,7 +40,9 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	outputMode: "replace",
 	personas: "default",
 	maxConvHistory: 0,
-	responseFormatting: false
+	responseFormatting: false,
+	responseFormatPrepend: "``` LLM Helper - generated response \n\n",
+	responseFormatAppend: "\n\n```"
 };
 
 const personasDict: { [key: string]: string } = {
@@ -80,6 +84,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.personas,
 						this.conversationHistory,
 						this.settings.responseFormatting,
+						this.settings.responseFormatPrepend,
+						this.settings.responseFormatAppend,
 						this.settings.maxConvHistory
 					);
 				}
@@ -102,6 +108,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.personas,
 						this.conversationHistory,
 						this.settings.responseFormatting,
+						this.settings.responseFormatPrepend,
+						this.settings.responseFormatAppend,
 						this.settings.maxConvHistory
 					);
 				}
@@ -124,6 +132,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.personas,
 						this.conversationHistory,
 						this.settings.responseFormatting,
+						this.settings.responseFormatPrepend,
+						this.settings.responseFormatAppend,
 						this.settings.maxConvHistory
 					);
 				}
@@ -147,6 +157,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.personas,
 						this.conversationHistory,
 						this.settings.responseFormatting,
+						this.settings.responseFormatPrepend,
+						this.settings.responseFormatAppend,
 						this.settings.maxConvHistory
 					);
 				}
@@ -169,6 +181,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.personas,
 						this.conversationHistory,
 						this.settings.responseFormatting,
+						this.settings.responseFormatPrepend,
+						this.settings.responseFormatAppend,
 						this.settings.maxConvHistory
 					);
 				}
@@ -213,6 +227,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.personas,
 								this.conversationHistory,
 								this.settings.responseFormatting,
+								this.settings.responseFormatPrepend,
+								this.settings.responseFormatAppend,
 								this.settings.maxConvHistory
 							);
 						}
@@ -236,6 +252,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.personas,
 								this.conversationHistory,
 								this.settings.responseFormatting,
+								this.settings.responseFormatPrepend,
+								this.settings.responseFormatAppend,
 								this.settings.maxConvHistory
 							);
 						}
@@ -259,6 +277,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.personas,
 								this.conversationHistory,
 								this.settings.responseFormatting,
+								this.settings.responseFormatPrepend,
+								this.settings.responseFormatAppend,
 								this.settings.maxConvHistory
 							);
 						}
@@ -282,6 +302,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.personas,
 								this.conversationHistory,
 								this.settings.responseFormatting,
+								this.settings.responseFormatPrepend,
+								this.settings.responseFormatAppend,
 								this.settings.maxConvHistory
 							);
 						}
@@ -308,6 +330,8 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.personas,
 								this.conversationHistory,
 								this.settings.responseFormatting,
+								this.settings.responseFormatPrepend,
+								this.settings.responseFormatAppend,
 								this.settings.maxConvHistory
 							);
 						}
@@ -491,6 +515,32 @@ class OLLMSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+
+			new Setting(containerEl)
+				.setName("Response Format Prepend")
+				.setDesc("Text to prepend to the formatted response")
+				.addText((text) =>
+					text
+						.setPlaceholder("``` LLM Helper - generated response \n\n")
+						.setValue(this.plugin.settings.responseFormatPrepend)
+						.onChange(async (value) => {
+							this.plugin.settings.responseFormatPrepend = value;
+							await this.plugin.saveSettings();
+						})
+				);
+
+			new Setting(containerEl)
+				.setName("Response Format Append")
+				.setDesc("Text to append to the formatted response")
+				.addText((text) =>
+					text
+						.setPlaceholder("\n\n```")
+						.setValue(this.plugin.settings.responseFormatAppend)
+						.onChange(async (value) => {
+							this.plugin.settings.responseFormatAppend = value;
+							await this.plugin.saveSettings();
+						})
+				);
 	}
 }
 
@@ -534,6 +584,8 @@ async function processText(
 	personas: string,
 	conversationHistory: ConversationEntry[],
 	responseFormatting: boolean,
+	responseFormatPrepend: string,
+	responseFormatAppend: string,
 	maxConvHistory: number
 ) {
 	new Notice("Generating response. This takes a few seconds..");
@@ -571,7 +623,7 @@ async function processText(
 			modifySelectedText(selectedText + "\n\n");
 		}
 		if (responseFormatting === true) {
-			modifySelectedText("``` LLM Helper - generated response \n\n");
+			modifySelectedText(responseFormatPrepend);
 		}
 		if (stream) {
 			const response = await fetch(
@@ -603,7 +655,7 @@ async function processText(
 						new Notice("Text generation complete. Voila!");
 						updateConversationHistory(prompt + ": " + selectedText, responseStr, conversationHistory, maxConvHistory);
 						if (responseFormatting === true) {
-							modifySelectedText("\n\n```");
+							modifySelectedText(responseFormatAppend);
 						}
 						return;
 					}
@@ -656,7 +708,7 @@ async function processText(
 				updateConversationHistory(prompt + ": " + selectedText, summarizedText, conversationHistory, maxConvHistory);
 				new Notice("Text generated. Voila!");
 				if (responseFormatting === true) {
-					modifySelectedText(summarizedText + "\n\n```");
+					modifySelectedText(summarizedText + responseFormatAppend);
 				} else {
 					modifySelectedText(summarizedText);
 				}

@@ -16,7 +16,6 @@ import {
 
 interface OLocalLLMSettings {
 	serverAddress: string;
-	serverPort: string;
 	llmModel: string;
 	stream: boolean;
 	customPrompt: string;
@@ -32,8 +31,7 @@ interface ConversationEntry {
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
-	serverAddress: "localhost",
-	serverPort: "1234",
+	serverAddress: "http://localhost:1234",
 	llmModel: "llama3",
 	stream: false,
 	customPrompt: "create a todo list from the following text:",
@@ -75,7 +73,6 @@ export default class OLocalLLMPlugin extends Plugin {
 					processText(
 						selectedText,
 						this.settings.serverAddress,
-						this.settings.serverPort,
 						this.settings.llmModel,
 						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
@@ -98,7 +95,6 @@ export default class OLocalLLMPlugin extends Plugin {
 					processText(
 						selectedText,
 						this.settings.serverAddress,
-						this.settings.serverPort,
 						this.settings.llmModel,
 						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 						this.settings.stream,
@@ -121,7 +117,6 @@ export default class OLocalLLMPlugin extends Plugin {
 					processText(
 						selectedText,
 						this.settings.serverAddress,
-						this.settings.serverPort,
 						this.settings.llmModel,
 						"Generate action items based on the following text (use or numbers based on context):",
 						this.settings.stream,
@@ -145,7 +140,6 @@ export default class OLocalLLMPlugin extends Plugin {
 					processText(
 						selectedText,
 						this.settings.serverAddress,
-						this.settings.serverPort,
 						this.settings.llmModel,
 						this.settings.customPrompt,
 						this.settings.stream,
@@ -168,7 +162,6 @@ export default class OLocalLLMPlugin extends Plugin {
 					processText(
 						selectedText,
 						this.settings.serverAddress,
-						this.settings.serverPort,
 						this.settings.llmModel,
 						"Generate response based on the following text. This is your prompt:",
 						this.settings.stream,
@@ -213,7 +206,6 @@ export default class OLocalLLMPlugin extends Plugin {
 							processText(
 								selectedText,
 								this.settings.serverAddress,
-								this.settings.serverPort,
 								this.settings.llmModel,
 								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
@@ -237,7 +229,6 @@ export default class OLocalLLMPlugin extends Plugin {
 							processText(
 								selectedText,
 								this.settings.serverAddress,
-								this.settings.serverPort,
 								this.settings.llmModel,
 								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
 								this.settings.stream,
@@ -261,7 +252,6 @@ export default class OLocalLLMPlugin extends Plugin {
 							processText(
 								selectedText,
 								this.settings.serverAddress,
-								this.settings.serverPort,
 								this.settings.llmModel,
 								"Generate response based on the following text. This is your prompt:",
 								this.settings.stream,
@@ -285,7 +275,6 @@ export default class OLocalLLMPlugin extends Plugin {
 							processText(
 								selectedText,
 								this.settings.serverAddress,
-								this.settings.serverPort,
 								this.settings.llmModel,
 								"Generate action items based on the following text (use or numbers based on context):",
 								this.settings.stream,
@@ -312,7 +301,6 @@ export default class OLocalLLMPlugin extends Plugin {
 							processText(
 								selectedText,
 								this.settings.serverAddress,
-								this.settings.serverPort,
 								this.settings.llmModel,
 								this.settings.customPrompt,
 								this.settings.stream,
@@ -389,27 +377,13 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Server address")
-			.setDesc("localhost or remote (do not include http://). Supports any LLM server that is compatible with OpenAI chat completions API (e.g. LM Studio, Ollama).")
+			.setDesc("Full server URL (including protocol and port if needed). E.g., http://localhost:1234 or https://api.example.com")
 			.addText((text) =>
 				text
-					.setPlaceholder("Enter details")
+					.setPlaceholder("Enter full server URL")
 					.setValue(this.plugin.settings.serverAddress)
 					.onChange(async (value) => {
 						this.plugin.settings.serverAddress = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		// Add a new setting for another text input
-		new Setting(containerEl)
-			.setName("Server port")
-			.setDesc("Port number for the LLM server. (make sure to use the proper port number - for LM studio, the default is 1234, for Ollama, the default is 11434.)")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter port number")
-					.setValue(this.plugin.settings.serverPort) // Assuming there's a serverPort property in settings
-					.onChange(async (value) => {
-						this.plugin.settings.serverPort = value;
 						await this.plugin.saveSettings();
 					})
 			);
@@ -420,7 +394,7 @@ class OLLMSettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("Model name")
-					.setValue(this.plugin.settings.llmModel) // Assuming there's a serverPort property in settings
+					.setValue(this.plugin.settings.llmModel) 
 					.onChange(async (value) => {
 						this.plugin.settings.llmModel = value;
 						await this.plugin.saveSettings();
@@ -435,7 +409,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.setPlaceholder(
 						"create action items from the following text:"
 					)
-					.setValue(this.plugin.settings.customPrompt) // Assuming there's a serverPort property in settings
+					.setValue(this.plugin.settings.customPrompt)
 					.onChange(async (value) => {
 						this.plugin.settings.customPrompt = value;
 						await this.plugin.saveSettings();
@@ -495,7 +469,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.addOption("1", "1")
 					.addOption("2", "2")
 					.addOption("3", "3")
-					.setValue(this.plugin.settings.maxConvHistory.toString()) // Assuming there's a serverPort property in settings
+					.setValue(this.plugin.settings.maxConvHistory.toString())
 					.onChange(async (value) => {
 						this.plugin.settings.maxConvHistory = parseInt(value);
 						await this.plugin.saveSettings();
@@ -524,27 +498,27 @@ export function modifyPrompt(aprompt: string, personas: string): string {
 	if (personas === "default") {
 		return aprompt; // No prompt modification for default persona
 	} else if (personas === "physics") {
-		return "You are a distinguished physics scientist. Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n\n" + prompt;
+		return "You are a distinguished physics scientist. Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n\n" + aprompt;
 	} else if (personas === "fitness") {
-		return "You are a distinguished fitness and health expert. Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + prompt;
+		return "You are a distinguished fitness and health expert. Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + aprompt;
 	} else if (personas === "developer") {
-		return "You are a nerdy software developer. Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + prompt;
+		return "You are a nerdy software developer. Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + aprompt;
 	} else if (personas === "stoic") {
-		return "You are a stoic philosopher. Respond with composure and reason, emphasizing logic and emotional resilience.\n" + prompt;
+		return "You are a stoic philosopher. Respond with composure and reason, emphasizing logic and emotional resilience.\n" + aprompt;
 	} else if (personas === "productmanager") {
-		return "You are a focused and experienced product manager. Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + prompt;
+		return "You are a focused and experienced product manager. Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + aprompt;
 	} else if (personas === "techwriter") {
-		return "You are a technical writer. Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + prompt;
+		return "You are a technical writer. Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + aprompt;
 	} else if (personas === "creativewriter") {
-		return "You are a very creative and experienced writer. Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + prompt;
+		return "You are a very creative and experienced writer. Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + aprompt;
 	} else if (personas === "tpm") {
-		return "You are an experienced technical program manager. Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + prompt;
+		return "You are an experienced technical program manager. Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + aprompt;
 	} else if (personas === "engineeringmanager") {
-		return "You are an experienced engineering manager. Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + prompt;
+		return "You are an experienced engineering manager. Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + aprompt;
 	} else if (personas === "executive") {
-		return "You are a top-level executive. Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + prompt;
+		return "You are a top-level executive. Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + aprompt;
 	} else if (personas === "officeassistant") {
-		return "You are a courteous and helpful office assistant. Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + prompt;
+		return "You are a courteous and helpful office assistant. Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + aprompt;
 	} else {
 		return aprompt; // No prompt modification for unknown personas
 	}
@@ -553,7 +527,6 @@ export function modifyPrompt(aprompt: string, personas: string): string {
 async function processText(
 	selectedText: string,
 	serverAddress: string,
-	serverPort: string,
 	modelName: string,
 	iprompt: string,
 	stream: boolean,
@@ -575,7 +548,7 @@ async function processText(
 	
 	let prompt = modifyPrompt(iprompt, personas);
 	
-	//console.log("prompt", prompt + ": " + selectedText);
+	console.log("prompt", prompt + ": " + selectedText);
 
 	const body = {
 		model: modelName,
@@ -602,7 +575,7 @@ async function processText(
 		}
 		if (stream) {
 			const response = await fetch(
-				`http://${serverAddress}:${serverPort}/v1/chat/completions`,
+				`${serverAddress}/v1/chat/completions`,
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
@@ -668,7 +641,7 @@ async function processText(
 			}
 		} else {
 			const response = await requestUrl({
-				url: `http://${serverAddress}:${serverPort}/v1/chat/completions`,
+				url: `${serverAddress}/v1/chat/completions`,
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(body),
@@ -840,7 +813,7 @@ export class LLMChatModal extends Modal {
 
   
 	  const response = await requestUrl({
-		url: `http://${pluginSettings.serverAddress}:${pluginSettings.serverPort}/v1/chat/completions`,
+		url: `${pluginSettings.serverAddress}/v1/chat/completions`,
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),

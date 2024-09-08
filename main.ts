@@ -953,3 +953,12 @@ function showThinkingIndicator(chatHistoryEl: HTMLElement) {
 	  conversationHistory.shift();
 	}
   }
+
+  //TODO: add a copy to clipboard button to the chat history
+  //TODO: submit button should be disabled if the input is empty
+  //TODO: pressing enter should submit the question
+  //TODO: add a button to clear the chat history
+  //TODO: add a button to save the chat history to a obsidian file
+
+  //TODO: hashtag generator for selected text
+  //TODO: hashtag gneerator for a file

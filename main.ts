@@ -14,10 +14,11 @@ import {
 	TextComponent,
 	ButtonComponent,
 } from "obsidian";
+import { generateAndAppendTags } from "./autoTagger";
 
 // Remember to rename these classes and interfaces!
 
-interface OLocalLLMSettings {
+export interface OLocalLLMSettings {
 	serverAddress: string;
 	llmModel: string;
 	stream: boolean;
@@ -201,6 +202,14 @@ export default class OLocalLLMPlugin extends Plugin {
 			},
 		  });
 
+		this.addCommand({
+			id: "llm-hashtag",
+			name: "Generate hashtags for selected text",
+			callback: () => {
+			  generateAndAppendTags(this.app, this.settings);
+			},
+		  });
+
 		this.addRibbonIcon("brain-cog", "LLM Context", (event) => {
 			const menu = new Menu();
 
@@ -337,6 +346,21 @@ export default class OLocalLLMPlugin extends Plugin {
 								this.settings.responseFormatAppend,
 								this.settings.maxConvHistory
 							);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Generate tags")
+					.setIcon("hash")
+					.onClick(async () => {
+						new Notice(
+							"Generating hashtags"
+						);
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							generateAndAppendTags(this.app, this.settings);
 						}
 					})
 			);
@@ -1026,6 +1050,4 @@ function updateConversationHistory(prompt: string, response: string, conversatio
 //TODO: add a button to clear the chat history
 //TODO: add a button to save the chat history to a obsidian file
 
-//TODO: hashtag generator for selected text
-//TODO: hashtag gneerator for a file
 //TODO: kill switch

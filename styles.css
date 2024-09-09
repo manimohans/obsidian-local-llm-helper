@@ -1,40 +1,48 @@
-.chatHistoryElStyle{
+.chatHistoryElStyle {
     overflow-y: auto;
+    max-height: 70vh;
+    padding: 10px;
+    background-color: var(--background-secondary);
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
+
 .personasInfoStyle {
     font-size: x-small;
     font-style: italic;
-    opacity: 0.5;
-    margin-bottom: 10px;
+    opacity: 0.7;
+    margin-bottom: 15px;
+    color: var(--text-muted);
 }
+
 .llmChatMessageStyleUser { 
-    border-radius: 15px;
-	background-color: #000066;
-    color: white;
-	padding: 10px;
-	margin-bottom: 20px;
-	margin-top: 20px;
-	margin-left: 20px;
-	user-select: text;
-	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
-	font-style: italic;
+    border-radius: 15px 15px 2px 15px;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    padding: 12px 15px;
+    margin-bottom: 15px;
+    margin-left: 20px;
+    user-select: text;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    font-style: italic;
+    max-width: 80%;
+    align-self: flex-end;
 }
+
 .llmChatMessageStyleAI {
     position: relative;
-    padding-bottom: 24px;
-    border-radius: 15px;
-	background-color: #003300;
-    color: white;
-	padding: 10px;
-	margin-bottom: 20px;
-	margin-top: 20px;
-	margin-right: 20px;
-	user-select: text;
-	box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+    padding: 12px 15px 24px;
+    border-radius: 15px 15px 15px 2px;
+    background-color: var(--background-primary-alt);
+    color: var(--text-normal);
+    margin-bottom: 15px;
+    margin-right: 20px;
+    user-select: text;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    max-width: 80%;
+    align-self: flex-start;
 }
-.chatInputStyle {
-    width: 100%;
-}
+
 .copy-button {
     position: absolute;
     bottom: 4px;
@@ -54,38 +62,44 @@
 .copy-button svg {
     width: 16px;
     height: 16px;
+    color: var(--text-muted);
 }
-  
+
 .thinking-indicator {
-    display: inline-block; /* Allow inline placement */
+    display: inline-block;
     margin-bottom: 10px;
+    padding: 8px 12px;
+    background-color: var(--background-primary-alt);
+    border-radius: 12px;
+    font-size: 0.9em;
+    color: var(--text-muted);
 }
 
 .thinking-indicator span {
-    margin-left: 2px; /* Space between text and dots */
+    margin-left: 4px;
 }
 
 .dots {
     display: inline-block;
-    position: relative; /* Enable absolute positioning for dots */
+    position: relative;
 }
 
 .dot {
     display: inline-block;
-    width: 3px;
-    height: 3px;
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
-    background-color: #ddd; /* Adjust dot color */
-    margin-right: 1px; /* Space between dots */
+    background-color: var(--text-muted);
+    margin-right: 2px;
     animation: blink 1.5s infinite;
 }
 
 .dot:nth-child(2) {
-    animation-delay: 0.2s; /* Delay second dot animation */
+    animation-delay: 0.2s;
 }
 
 .dot:nth-child(3) {
-    animation-delay: 0.4s; /* Delay third dot animation */
+    animation-delay: 0.4s;
 }
 
 @keyframes blink {
@@ -96,4 +110,64 @@
         opacity: 0;
     }
 }
-  
+
+.llm-chat-modal {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.llm-chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.llm-chat-history {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.llm-chat-input-container {
+    padding: 10px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.chatInputContainer {
+    display: flex;
+    padding: 10px;
+    background-color: var(--background-primary);
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.chatInputStyle {
+    flex: 1;
+    padding: 10px;
+    border-radius: 20px;
+    border: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.chatInputStyle:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.submitButton {
+    margin-left: 10px;
+    padding: 10px 20px;
+    border-radius: 20px;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+.submitButton:hover {
+    background-color: var(--interactive-accent-hover);
+}

@@ -770,14 +770,13 @@ export class LLMChatModal extends Modal {
 	onOpen() {
 	  const { contentEl } = this;
 
-	  let textInputEl: HTMLInputElement | null = null;
-  
+	  contentEl.classList.add("llm-chat-modal");
+
 	  const chatContainer = contentEl.createDiv({ cls: "llm-chat-container" });
 	  const chatHistoryEl = chatContainer.createDiv({ cls: "llm-chat-history" });
 
 	  chatHistoryEl.classList.add("chatHistoryElStyle");
-	  contentEl.classList.add("chatHistoryElStyle");
-  
+
 	  // Display existing conversation history (if any)
 	  chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
 
@@ -793,33 +792,34 @@ export class LLMChatModal extends Modal {
 		const aiMessageEl = chatHistoryEl.createEl("p", { text: "LLM Helper: " + entry.response });
 		aiMessageEl.classList.add('llmChatMessageStyleAI');
 	  });
-  
-	  new Setting(contentEl)
+
+	  const inputContainer = contentEl.createDiv({ cls: "llm-chat-input-container" });
+
+	  new Setting(inputContainer)
 		.setName("Ask:")
 		.addText((text) => {
-		  textInputEl = text.inputEl;
+		  text.inputEl.classList.add("chatInputStyle");
 		  text.onChange((value) => {
 			this.result = value;
-		  })
-		  textInputEl.classList.add("chatInputStyle");
-
-		  // Add keypress event listener for Enter key
-		  textInputEl.addEventListener('keypress', (event) => {
+		  });
+		  text.inputEl.addEventListener('keypress', (event) => {
 			if (event.key === 'Enter') {
 			  event.preventDefault();
 			  this.handleSubmit();
 			}
 		  });
 		});
-  
-	    new Setting(contentEl)
-    .addButton((btn) =>
-      btn
-        .setButtonText("Submit")
-        .setCta()
-        .onClick(() => this.handleSubmit())
-    );
 
+	  new Setting(inputContainer)
+		.addButton((btn) =>
+		  btn
+			.setButtonText("Submit")
+			.setCta()
+			.onClick(() => this.handleSubmit())
+		);
+
+	  // Scroll to bottom initially
+	  this.scrollToBottom();
 	}
   
 	onClose() {
@@ -850,7 +850,14 @@ export class LLMChatModal extends Modal {
 		if (textInputEl) {
 		  textInputEl.value = "";
 		}
-		scrollToBottom(this.contentEl);
+		this.scrollToBottom();
+	  }
+	}
+
+	scrollToBottom() {
+	  const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
+	  if (chatHistoryEl) {
+		chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
 	  }
 	}
   }
@@ -868,6 +875,7 @@ export class LLMChatModal extends Modal {
 	}
 
 	showThinkingIndicator(chatHistoryEl);
+	scrollToBottom(chatContainer);
 
 	text = modifyPrompt(text, personas);
 	console.log(text);
@@ -940,6 +948,9 @@ export class LLMChatModal extends Modal {
 
 		hideThinkingIndicator(chatHistoryEl);
 
+		// Scroll to bottom after response is generated
+		scrollToBottom(chatContainer);
+
 	  } else {
 		throw new Error(
 		  "Error getting response from LLM server: " + response.text
@@ -983,8 +994,10 @@ function showThinkingIndicator(chatHistoryEl: HTMLElement) {
   }
 
   function scrollToBottom(el: HTMLElement) {
-	console.log(el.scrollHeight);
-	el.scrollTop = el.scrollHeight;
+	const chatHistoryEl = el.querySelector('.llm-chat-history');
+	if (chatHistoryEl) {
+	  chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+	}
   }
 
   function updateConversationHistory(prompt: string, response: string, conversationHistory: ConversationEntry[], maxConvHistoryLength: number) {

@@ -190,11 +190,20 @@
     font-weight: 600;
     border: none;
     cursor: pointer;
-    transition: background-color 0.3s ease;
+    transition: all 0.3s ease;
 }
 
-.llm-chat-submit-button:hover {
+.llm-chat-submit-button:hover:not(.llm-chat-submit-button-disabled) {
     background-color: var(--interactive-accent-hover);
+}
+
+.llm-chat-submit-button-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.llm-chat-submit-button-disabled:hover {
+    background-color: var(--interactive-accent);
 }
 
 .chatInputContainer {

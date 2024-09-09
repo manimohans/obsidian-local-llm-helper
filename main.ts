@@ -11,6 +11,8 @@ import {
 	View,
 	requestUrl,
 	setIcon,
+	TextComponent,
+	ButtonComponent,
 } from "obsidian";
 
 // Remember to rename these classes and interfaces!
@@ -756,264 +758,274 @@ function modifySelectedText(text: any) {
 }
 
 export class LLMChatModal extends Modal {
-	result: string = "";
-	pluginSettings: OLocalLLMSettings;
-	conversationHistory: ConversationEntry[] = []; // Change this line
-	onSubmit: (result: string) => void;
-	
+  result: string = "";
+  pluginSettings: OLocalLLMSettings;
+  conversationHistory: ConversationEntry[] = [];
+  submitButton: ButtonComponent;
 
-	constructor(app: App, settings: OLocalLLMSettings) {
-		super(app);
-		this.pluginSettings = settings;
-	  }
-  
-	onOpen() {
-	  const { contentEl } = this;
+  constructor(app: App, settings: OLocalLLMSettings) {
+    super(app);
+    this.pluginSettings = settings;
+  }
 
-	  contentEl.classList.add("llm-chat-modal");
+  onOpen() {
+    const { contentEl } = this;
 
-	  const chatContainer = contentEl.createDiv({ cls: "llm-chat-container" });
-	  const chatHistoryEl = chatContainer.createDiv({ cls: "llm-chat-history" });
+    contentEl.classList.add("llm-chat-modal");
 
-	  chatHistoryEl.classList.add("chatHistoryElStyle");
+    const chatContainer = contentEl.createDiv({ cls: "llm-chat-container" });
+    const chatHistoryEl = chatContainer.createDiv({ cls: "llm-chat-history" });
 
-	  // Display existing conversation history (if any)
-	  chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
+    chatHistoryEl.classList.add("chatHistoryElStyle");
 
-	  const personasInfoEl = document.createElement('div');
-	  personasInfoEl.classList.add("personasInfoStyle");
-	  personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
-	  chatHistoryEl.appendChild(personasInfoEl);
+    // Display existing conversation history (if any)
+    chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
 
-	  // Update this part to use conversationHistory
-	  this.conversationHistory.forEach((entry) => {
-		const userMessageEl = chatHistoryEl.createEl("p", { text: "You: " + entry.prompt });
-		userMessageEl.classList.add('llmChatMessageStyleUser');
-		const aiMessageEl = chatHistoryEl.createEl("p", { text: "LLM Helper: " + entry.response });
-		aiMessageEl.classList.add('llmChatMessageStyleAI');
-	  });
+    const personasInfoEl = document.createElement('div');
+    personasInfoEl.classList.add("personasInfoStyle");
+    personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
+    chatHistoryEl.appendChild(personasInfoEl);
 
-	  const inputContainer = contentEl.createDiv({ cls: "llm-chat-input-container" });
+    // Update this part to use conversationHistory
+    this.conversationHistory.forEach((entry) => {
+      const userMessageEl = chatHistoryEl.createEl("p", { text: "You: " + entry.prompt });
+      userMessageEl.classList.add('llmChatMessageStyleUser');
+      const aiMessageEl = chatHistoryEl.createEl("p", { text: "LLM Helper: " + entry.response });
+      aiMessageEl.classList.add('llmChatMessageStyleAI');
+    });
 
-	  new Setting(inputContainer)
-		.setName("Ask:")
-		.addText((text) => {
-		  text.inputEl.classList.add("chatInputStyle");
-		  text.onChange((value) => {
-			this.result = value;
-		  });
-		  text.inputEl.addEventListener('keypress', (event) => {
-			if (event.key === 'Enter') {
-			  event.preventDefault();
-			  this.handleSubmit();
-			}
-		  });
-		});
+    const inputContainer = contentEl.createDiv({ cls: "llm-chat-input-container" });
 
-	  new Setting(inputContainer)
-		.addButton((btn) =>
-		  btn
-			.setButtonText("Submit")
-			.setCta()
-			.onClick(() => this.handleSubmit())
-		);
+    const inputRow = inputContainer.createDiv({ cls: "llm-chat-input-row" });
 
-	  // Scroll to bottom initially
-	  this.scrollToBottom();
-	}
-  
-	onClose() {
-	  let { contentEl } = this;
-	  contentEl.empty();
-	}
+    const askLabel = inputRow.createSpan({ text: "Ask:", cls: "llm-chat-ask-label" });
 
-	// New method to handle submission
-	async handleSubmit() {
-	  if (this.result.trim() === "") {
-		new Notice("Please enter a question.");
-		return;
-	  }
-	  
-	  const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
-	  if (chatHistoryEl) {
-		await processChatInput(
-		  this.result,
-		  this.pluginSettings.personas,
-		  this.contentEl,
-		  chatHistoryEl as HTMLElement,
-		  this.conversationHistory,
-		  this.pluginSettings
-		);
-		this.result = ""; // Clear user input field
+    const textInput = new TextComponent(inputRow)
+      .setPlaceholder("Type your question here...")
+      .onChange((value) => {
+        this.result = value;
+        this.updateSubmitButtonState();
+      });
+    textInput.inputEl.classList.add("llm-chat-input");
+    textInput.inputEl.addEventListener('keypress', (event) => {
+      if (event.key === 'Enter' && this.result.trim() !== "") {
+        event.preventDefault();
+        this.handleSubmit();
+      }
+    });
 
-		const textInputEl = this.contentEl.querySelector('.chatInputStyle') as HTMLInputElement;
-		if (textInputEl) {
-		  textInputEl.value = "";
-		}
-		this.scrollToBottom();
-	  }
-	}
+    this.submitButton = new ButtonComponent(inputRow)
+      .setButtonText("Submit")
+      .setCta()
+      .onClick(() => this.handleSubmit());
+    this.submitButton.buttonEl.classList.add("llm-chat-submit-button");
 
-	scrollToBottom() {
-	  const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
-	  if (chatHistoryEl) {
-		chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
-	  }
-	}
+    // Initially disable the submit button
+    this.updateSubmitButtonState();
+
+    // Scroll to bottom initially
+    this.scrollToBottom();
   }
   
-  async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings) {
-	const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
-
-	// Add user's question to conversation history
-	conversationHistory.push({ prompt: text, response: "" });
-	if (chatHistoryEl) {
-		const chatElement = document.createElement('div');
-		chatElement.classList.add('llmChatMessageStyleUser');
-		chatElement.innerHTML = text;
-		chatHistoryEl.appendChild(chatElement);
-	}
-
-	showThinkingIndicator(chatHistoryEl);
-	scrollToBottom(chatContainer);
-
-	text = modifyPrompt(text, personas);
-	console.log(text);
-  
-	try {
-	  const body = {
-		model: pluginSettings.llmModel,
-		messages: [
-		  { role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
-		  ...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
-			acc.push({ role: "user", content: entry.prompt });
-			acc.push({ role: "assistant", content: entry.response });
-			return acc;
-		  }, [] as { role: string; content: string }[]),
-		  { role: "user", content: text },
-		],
-		temperature: 0.7,
-		max_tokens: -1,
-		stream: false, // Set to false for chat window
-	  };
-
-  
-	  const response = await requestUrl({
-		url: `${pluginSettings.serverAddress}/v1/chat/completions`,
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(body),
-	  });
-  
-	  const statusCode = response.status;
-  
-	  if (statusCode >= 200 && statusCode < 300) {
-		const data = await response.json;
-		const llmResponse = data.choices[0].message.content;
-  
-		// Convert LLM response to HTML
-		let formattedResponse = llmResponse;
-		//conver to html - bold
-		formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
-		formattedResponse = formattedResponse.replace(/_(.*?)_/g, "<i>$1</i>");
-		formattedResponse = formattedResponse.replace(/\n\n/g, "<br><br>");
-
-		console.log("formattedResponse", formattedResponse);
-	  
-		// Create response container
-		const responseContainer = document.createElement('div');
-		responseContainer.classList.add('llmChatMessageStyleAI');
-
-		// Create response text element
-		const responseTextEl = document.createElement('div');
-		responseTextEl.innerHTML = formattedResponse;
-		responseContainer.appendChild(responseTextEl);
-
-		// Create copy button
-		const copyButton = document.createElement('button');
-		copyButton.classList.add('copy-button');
-		setIcon(copyButton, 'copy');
-		copyButton.addEventListener('click', () => {
-		  navigator.clipboard.writeText(llmResponse).then(() => {
-			new Notice('Copied to clipboard!');
-		  });
-		});
-		responseContainer.appendChild(copyButton);
-
-		// Add response container to chat history
-		chatHistoryEl.appendChild(responseContainer);
-
-		// Add LLM response to conversation history with Markdown
-		updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
-
-		hideThinkingIndicator(chatHistoryEl);
-
-		// Scroll to bottom after response is generated
-		scrollToBottom(chatContainer);
-
-	  } else {
-		throw new Error(
-		  "Error getting response from LLM server: " + response.text
-		);
-	  }
-	} catch (error) {
-	  console.error("Error during request:", error);
-	  new Notice(
-		"Error communicating with LLM Helper: Check plugin console for details!"
-	  );
-	  hideThinkingIndicator(chatHistoryEl);
-	}
-	  
+  onClose() {
+    let { contentEl } = this;
+    contentEl.empty();
   }
+
+  updateSubmitButtonState() {
+    if (this.result.trim() === "") {
+      this.submitButton.setDisabled(true);
+      this.submitButton.buttonEl.classList.add("llm-chat-submit-button-disabled");
+    } else {
+      this.submitButton.setDisabled(false);
+      this.submitButton.buttonEl.classList.remove("llm-chat-submit-button-disabled");
+    }
+  }
+
+  // New method to handle submission
+  async handleSubmit() {
+    if (this.result.trim() === "") {
+      return;
+    }
+    
+    const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
+    if (chatHistoryEl) {
+      await processChatInput(
+        this.result,
+        this.pluginSettings.personas,
+        this.contentEl,
+        chatHistoryEl as HTMLElement,
+        this.conversationHistory,
+        this.pluginSettings
+      );
+      this.result = ""; // Clear user input field
+      const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
+      if (textInputEl) {
+        textInputEl.value = "";
+      }
+      this.updateSubmitButtonState(); // Disable the button after submission
+      this.scrollToBottom();
+    }
+  }
+
+  scrollToBottom() {
+    const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
+    if (chatHistoryEl) {
+      chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+    }
+  }
+}
+  
+async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings) {
+  const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
+
+  // Add user's question to conversation history
+  conversationHistory.push({ prompt: text, response: "" });
+  if (chatHistoryEl) {
+    const chatElement = document.createElement('div');
+    chatElement.classList.add('llmChatMessageStyleUser');
+    chatElement.innerHTML = text;
+    chatHistoryEl.appendChild(chatElement);
+  }
+
+  showThinkingIndicator(chatHistoryEl);
+  scrollToBottom(chatContainer);
+
+  text = modifyPrompt(text, personas);
+  console.log(text);
+  
+  try {
+    const body = {
+      model: pluginSettings.llmModel,
+      messages: [
+        { role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+        ...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
+          acc.push({ role: "user", content: entry.prompt });
+          acc.push({ role: "assistant", content: entry.response });
+          return acc;
+        }, [] as { role: string; content: string }[]),
+        { role: "user", content: text },
+      ],
+      temperature: 0.7,
+      max_tokens: -1,
+      stream: false, // Set to false for chat window
+    };
+
+    const response = await requestUrl({
+      url: `${pluginSettings.serverAddress}/v1/chat/completions`,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  
+    const statusCode = response.status;
+  
+    if (statusCode >= 200 && statusCode < 300) {
+      const data = await response.json;
+      const llmResponse = data.choices[0].message.content;
+  
+      // Convert LLM response to HTML
+      let formattedResponse = llmResponse;
+      //conver to html - bold
+      formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+      formattedResponse = formattedResponse.replace(/_(.*?)_/g, "<i>$1</i>");
+      formattedResponse = formattedResponse.replace(/\n\n/g, "<br><br>");
+
+      console.log("formattedResponse", formattedResponse);
+    
+      // Create response container
+      const responseContainer = document.createElement('div');
+      responseContainer.classList.add('llmChatMessageStyleAI');
+
+      // Create response text element
+      const responseTextEl = document.createElement('div');
+      responseTextEl.innerHTML = formattedResponse;
+      responseContainer.appendChild(responseTextEl);
+
+      // Create copy button
+      const copyButton = document.createElement('button');
+      copyButton.classList.add('copy-button');
+      setIcon(copyButton, 'copy');
+      copyButton.addEventListener('click', () => {
+        navigator.clipboard.writeText(llmResponse).then(() => {
+          new Notice('Copied to clipboard!');
+        });
+      });
+      responseContainer.appendChild(copyButton);
+
+      // Add response container to chat history
+      chatHistoryEl.appendChild(responseContainer);
+
+      // Add LLM response to conversation history with Markdown
+      updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
+
+      hideThinkingIndicator(chatHistoryEl);
+
+      // Scroll to bottom after response is generated
+      scrollToBottom(chatContainer);
+
+    } else {
+      throw new Error(
+        "Error getting response from LLM server: " + response.text
+      );
+    }
+  } catch (error) {
+    console.error("Error during request:", error);
+    new Notice(
+      "Error communicating with LLM Helper: Check plugin console for details!"
+    );
+    hideThinkingIndicator(chatHistoryEl);
+  }
+    
+}
   
 function showThinkingIndicator(chatHistoryEl: HTMLElement) {
-	const thinkingIndicatorEl = document.createElement('div');
-	thinkingIndicatorEl.classList.add('thinking-indicator');
-	const tStr = ["Calculating the last digit of pi... just kidding",
-		 "Quantum entanglement engaged... thinking deeply", 
-		 "Reticulating splines... stand by", 
-		 "Consulting the Oracle",
-		"Entangling qubits... preparing for a quantum leap",
-		"Processing... yada yada yada... almost done",
-		"Processing... We're approaching singularity",
-		"Serenity now! Patience while we process",
-		"Calculating the probability of George getting a date",
-		"Asking my man Art Vandalay"];
-	// pick a random index between 0 and size of string array above
-	const randomIndex = Math.floor(Math.random() * tStr.length);
-	thinkingIndicatorEl.innerHTML = tStr[randomIndex] + '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span>'; // Inline HTML
+  const thinkingIndicatorEl = document.createElement('div');
+  thinkingIndicatorEl.classList.add('thinking-indicator');
+  const tStr = ["Calculating the last digit of pi... just kidding",
+    "Quantum entanglement engaged... thinking deeply", 
+    "Reticulating splines... stand by", 
+    "Consulting the Oracle",
+    "Entangling qubits... preparing for a quantum leap",
+    "Processing... yada yada yada... almost done",
+    "Processing... We're approaching singularity",
+    "Serenity now! Patience while we process",
+    "Calculating the probability of George getting a date",
+    "Asking my man Art Vandalay"];
+  // pick a random index between 0 and size of string array above
+  const randomIndex = Math.floor(Math.random() * tStr.length);
+  thinkingIndicatorEl.innerHTML = tStr[randomIndex] + '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span>'; // Inline HTML
   
-	chatHistoryEl.appendChild(thinkingIndicatorEl);
-  }
+  chatHistoryEl.appendChild(thinkingIndicatorEl);
+}
   
-  function hideThinkingIndicator(chatHistoryEl: HTMLElement) {
-	const thinkingIndicatorEl = chatHistoryEl.querySelector('.thinking-indicator');
-	if (thinkingIndicatorEl) {
-	  chatHistoryEl.removeChild(thinkingIndicatorEl);
-	}
+function hideThinkingIndicator(chatHistoryEl: HTMLElement) {
+  const thinkingIndicatorEl = chatHistoryEl.querySelector('.thinking-indicator');
+  if (thinkingIndicatorEl) {
+    chatHistoryEl.removeChild(thinkingIndicatorEl);
   }
+}
 
-  function scrollToBottom(el: HTMLElement) {
-	const chatHistoryEl = el.querySelector('.llm-chat-history');
-	if (chatHistoryEl) {
-	  chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
-	}
+function scrollToBottom(el: HTMLElement) {
+  const chatHistoryEl = el.querySelector('.llm-chat-history');
+  if (chatHistoryEl) {
+    chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
   }
+}
 
-  function updateConversationHistory(prompt: string, response: string, conversationHistory: ConversationEntry[], maxConvHistoryLength: number) {
-	conversationHistory.push({ prompt, response });
+function updateConversationHistory(prompt: string, response: string, conversationHistory: ConversationEntry[], maxConvHistoryLength: number) {
+  conversationHistory.push({ prompt, response });
   
-	// Limit history length to maxConvHistoryLength
-	if (conversationHistory.length > maxConvHistoryLength) {
-	  conversationHistory.shift();
-	}
+  // Limit history length to maxConvHistoryLength
+  if (conversationHistory.length > maxConvHistoryLength) {
+    conversationHistory.shift();
   }
+}
 
-  //TODO: add a copy to clipboard button to the chat history
-  //TODO: submit button should be disabled if the input is empty
-  //TODO: pressing enter should submit the question
-  //TODO: add a button to clear the chat history
-  //TODO: add a button to save the chat history to a obsidian file
 
-  //TODO: hashtag generator for selected text
-  //TODO: hashtag gneerator for a file
+//TODO: add a button to clear the chat history
+//TODO: add a button to save the chat history to a obsidian file
+
+//TODO: hashtag generator for selected text
+//TODO: hashtag gneerator for a file
+//TODO: kill switch

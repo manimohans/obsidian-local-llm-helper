@@ -15,6 +15,7 @@ import {
 	ButtonComponent,
 } from "obsidian";
 import { generateAndAppendTags } from "./autoTagger";
+import { UpdateNoticeModal } from "./updateNoticeModal";
 
 // Remember to rename these classes and interfaces!
 
@@ -29,6 +30,7 @@ export interface OLocalLLMSettings {
 	responseFormatting: boolean;
 	responseFormatPrepend: string;
 	responseFormatAppend: string;
+	lastVersion: string;
 }
 
 interface ConversationEntry {
@@ -46,7 +48,8 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	maxConvHistory: 0,
 	responseFormatting: false,
 	responseFormatPrepend: "``` LLM Helper - generated response \n\n",
-	responseFormatAppend: "\n\n```"
+	responseFormatAppend: "\n\n```",
+	lastVersion: "0.0.0"
 };
 
 const personasDict: { [key: string]: string } = {
@@ -69,8 +72,21 @@ export default class OLocalLLMPlugin extends Plugin {
 	modal: any;
 	conversationHistory: ConversationEntry[] = [];
 
+	async checkForUpdates() {
+        const currentVersion = this.manifest.version;
+        const lastVersion = this.settings.lastVersion || "0.0.0";
+		//const lastVersion = "0.0.0";
+
+        if (currentVersion !== lastVersion) {
+            new UpdateNoticeModal(this.app, currentVersion).open();
+            this.settings.lastVersion = currentVersion;
+            await this.saveSettings();
+        }
+    }
+
 	async onload() {
 		await this.loadSettings();
+		this.checkForUpdates();
 
 		this.addCommand({
 			id: "summarize-selected-text",

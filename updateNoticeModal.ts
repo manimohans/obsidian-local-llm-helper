@@ -11,10 +11,7 @@ export class UpdateNoticeModal extends Modal {
         
         const changelogMd = `
 ## What's New
-- Chat window UX improvements
-- Reformat markdown in chat responses
-- Hashtag generation for selected text
-- Bug fix and performance improvements
+- Kill switch for text generation
 
 [Full Changelog](https://github.com/manimohans/obsidian-local-llm-helper/releases)
         `;

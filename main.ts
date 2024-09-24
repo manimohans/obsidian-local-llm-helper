@@ -71,6 +71,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
 	modal: any;
 	conversationHistory: ConversationEntry[] = [];
+	isKillSwitchActive: boolean = false;
 
 	async checkForUpdates() {
         const currentVersion = this.manifest.version;
@@ -92,21 +93,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "summarize-selected-text",
 			name: "Summarize selected text",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						this.settings.serverAddress,
-						this.settings.llmModel,
 						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
-						this.settings.stream,
-						this.settings.outputMode,
-						this.settings.personas,
-						this.conversationHistory,
-						this.settings.responseFormatting,
-						this.settings.responseFormatPrepend,
-						this.settings.responseFormatAppend,
-						this.settings.maxConvHistory
+						this
 					);
 				}
 			},
@@ -116,21 +109,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "makeitprof-selected-text",
 			name: "Make selected text sound professional",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						this.settings.serverAddress,
-						this.settings.llmModel,
 						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
-						this.settings.stream,
-						this.settings.outputMode,
-						this.settings.personas,
-						this.conversationHistory,
-						this.settings.responseFormatting,
-						this.settings.responseFormatPrepend,
-						this.settings.responseFormatAppend,
-						this.settings.maxConvHistory
+						this
 					);
 				}
 			},
@@ -140,21 +125,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "actionitems-selected-text",
 			name: "Generate action items from selected text",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						this.settings.serverAddress,
-						this.settings.llmModel,
 						"Generate action items based on the following text (use or numbers based on context):",
-						this.settings.stream,
-						this.settings.outputMode,
-						this.settings.personas,
-						this.conversationHistory,
-						this.settings.responseFormatting,
-						this.settings.responseFormatPrepend,
-						this.settings.responseFormatAppend,
-						this.settings.maxConvHistory
+						this
 					);
 				}
 			},
@@ -164,22 +141,14 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "custom-selected-text",
 			name: "Run Custom prompt (from settings) on selected text",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false; // Reset kill switch state
 				new Notice("Custom prompt: " + this.settings.customPrompt);
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						this.settings.serverAddress,
-						this.settings.llmModel,
 						this.settings.customPrompt,
-						this.settings.stream,
-						this.settings.outputMode,
-						this.settings.personas,
-						this.conversationHistory,
-						this.settings.responseFormatting,
-						this.settings.responseFormatPrepend,
-						this.settings.responseFormatAppend,
-						this.settings.maxConvHistory
+						this
 					);
 				}
 			},
@@ -189,21 +158,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "gentext-selected-text",
 			name: "Use SELECTED text as your prompt",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						this.settings.serverAddress,
-						this.settings.llmModel,
 						"Generate response based on the following text. This is your prompt:",
-						this.settings.stream,
-						this.settings.outputMode,
-						this.settings.personas,
-						this.conversationHistory,
-						this.settings.responseFormatting,
-						this.settings.responseFormatPrepend,
-						this.settings.responseFormatAppend,
-						this.settings.maxConvHistory
+						this
 					);
 				}
 			},
@@ -243,21 +204,13 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Summarize")
 					.setIcon("sword")
 					.onClick(async () => {
+						this.isKillSwitchActive = false; // Reset kill switch state
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(
 								selectedText,
-								this.settings.serverAddress,
-								this.settings.llmModel,
 								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
-								this.settings.stream,
-								this.settings.outputMode,
-								this.settings.personas,
-								this.conversationHistory,
-								this.settings.responseFormatting,
-								this.settings.responseFormatPrepend,
-								this.settings.responseFormatAppend,
-								this.settings.maxConvHistory
+								this
 							);
 						}
 					})
@@ -268,21 +221,13 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Make it professional")
 					.setIcon("school")
 					.onClick(async () => {
+						this.isKillSwitchActive = false; // Reset kill switch state
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(
 								selectedText,
-								this.settings.serverAddress,
-								this.settings.llmModel,
 								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
-								this.settings.stream,
-								this.settings.outputMode,
-								this.settings.personas,
-								this.conversationHistory,
-								this.settings.responseFormatting,
-								this.settings.responseFormatPrepend,
-								this.settings.responseFormatAppend,
-								this.settings.maxConvHistory
+								this
 							);
 						}
 					})
@@ -293,21 +238,13 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Use as prompt")
 					.setIcon("lightbulb")
 					.onClick(async () => {
+						this.isKillSwitchActive = false; // Reset kill switch state
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(
 								selectedText,
-								this.settings.serverAddress,
-								this.settings.llmModel,
 								"Generate response based on the following text. This is your prompt:",
-								this.settings.stream,
-								this.settings.outputMode,
-								this.settings.personas,
-								this.conversationHistory,
-								this.settings.responseFormatting,
-								this.settings.responseFormatPrepend,
-								this.settings.responseFormatAppend,
-								this.settings.maxConvHistory
+								this
 							);
 						}
 					})
@@ -318,21 +255,13 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Generate action items")
 					.setIcon("list-todo")
 					.onClick(async () => {
+						this.isKillSwitchActive = false; // Reset kill switch state
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							processText(
 								selectedText,
-								this.settings.serverAddress,
-								this.settings.llmModel,
 								"Generate action items based on the following text (use or numbers based on context):",
-								this.settings.stream,
-								this.settings.outputMode,
-								this.settings.personas,
-								this.conversationHistory,
-								this.settings.responseFormatting,
-								this.settings.responseFormatPrepend,
-								this.settings.responseFormatAppend,
-								this.settings.maxConvHistory
+								this
 							);
 						}
 					})
@@ -343,6 +272,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Custom prompt")
 					.setIcon("pencil")
 					.onClick(async () => {
+						this.isKillSwitchActive = false; // Reset kill switch state
 						new Notice(
 							"Custom prompt: " + this.settings.customPrompt
 						);
@@ -350,17 +280,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						if (selectedText.length > 0) {
 							processText(
 								selectedText,
-								this.settings.serverAddress,
-								this.settings.llmModel,
 								this.settings.customPrompt,
-								this.settings.stream,
-								this.settings.outputMode,
-								this.settings.personas,
-								this.conversationHistory,
-								this.settings.responseFormatting,
-								this.settings.responseFormatPrepend,
-								this.settings.responseFormatAppend,
-								this.settings.maxConvHistory
+								this
 							);
 						}
 					})
@@ -378,6 +299,16 @@ export default class OLocalLLMPlugin extends Plugin {
 						if (selectedText.length > 0) {
 							generateAndAppendTags(this.app, this.settings);
 						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Kill Switch")
+					.setIcon("x-circle")
+					.onClick(() => {
+						this.isKillSwitchActive = true;
+						new Notice("LLM Helper process stopped");
 					})
 			);
 
@@ -621,160 +552,166 @@ export function modifyPrompt(aprompt: string, personas: string): string {
 }
 
 async function processText(
-	selectedText: string,
-	serverAddress: string,
-	modelName: string,
-	iprompt: string,
-	stream: boolean,
-	outputMode: string,
-	personas: string,
-	conversationHistory: ConversationEntry[],
-	responseFormatting: boolean,
-	responseFormatPrepend: string,
-	responseFormatAppend: string,
-	maxConvHistory: number
+    selectedText: string,
+    iprompt: string,
+    plugin: OLocalLLMPlugin
 ) {
-	new Notice("Generating response. This takes a few seconds..");
-	const statusBarItemEl = document.querySelector(
-		".status-bar .status-bar-item"
-	);
-	if (statusBarItemEl) {
-		statusBarItemEl.textContent = "LLM Helper: Generating response...";
-	} else {
-		console.error("Status bar item element not found");
-	}
-	
-	let prompt = modifyPrompt(iprompt, personas);
-	
-	console.log("prompt", prompt + ": " + selectedText);
+    // Reset kill switch state at the beginning of each process
+    plugin.isKillSwitchActive = false;
 
-	const body = {
-		model: modelName,
-		messages: [
-			{ role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
-			...conversationHistory.slice(-maxConvHistory).reduce((acc, entry) => {
-				acc.push({ role: "user", content: entry.prompt });
-				acc.push({ role: "assistant", content: entry.response });
-				return acc;
-			}, [] as { role: string; content: string }[]),
-			{ role: "user", content: prompt + ": " + selectedText },
-		],
-		temperature: 0.7,
-		max_tokens: -1,
-		stream,
-	};
+    new Notice("Generating response. This takes a few seconds..");
+    const statusBarItemEl = document.querySelector(
+        ".status-bar .status-bar-item"
+    );
+    if (statusBarItemEl) {
+        statusBarItemEl.textContent = "LLM Helper: Generating response...";
+    } else {
+        console.error("Status bar item element not found");
+    }
+    
+    let prompt = modifyPrompt(iprompt, plugin.settings.personas);
+    
+    console.log("prompt", prompt + ": " + selectedText);
 
-	try {
-		if (outputMode === "append") {
-			modifySelectedText(selectedText + "\n\n");
-		}
-		if (responseFormatting === true) {
-			modifySelectedText(responseFormatPrepend);
-		}
-		if (stream) {
-			const response = await fetch(
-				`${serverAddress}/v1/chat/completions`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(body),
-				}
-			);
+    const body = {
+        model: plugin.settings.llmModel,
+        messages: [
+            { role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+            ...plugin.conversationHistory.slice(-plugin.settings.maxConvHistory).reduce((acc, entry) => {
+                acc.push({ role: "user", content: entry.prompt });
+                acc.push({ role: "assistant", content: entry.response });
+                return acc;
+            }, [] as { role: string; content: string }[]),
+            { role: "user", content: prompt + ": " + selectedText },
+        ],
+        temperature: 0.7,
+        max_tokens: -1,
+        stream: plugin.settings.stream,
+    };
 
-			if (!response.ok) {
-				throw new Error(
-					"Error summarizing text (Fetch): " + response.statusText
-				);
-			}
+    try {
+        if (plugin.settings.outputMode === "append") {
+            modifySelectedText(selectedText + "\n\n");
+        }
+        if (plugin.settings.responseFormatting === true) {
+            modifySelectedText(plugin.settings.responseFormatPrepend);
+        }
+        if (plugin.settings.stream) {
+            const response = await fetch(
+                `${plugin.settings.serverAddress}/v1/chat/completions`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                }
+            );
 
-			const reader = response.body && response.body.getReader();
-			let responseStr = "";
-			if (!reader) {
-				console.error("Reader not found");
-			} else {
-				const decoder = new TextDecoder();
+            if (!response.ok) {
+                throw new Error(
+                    "Error summarizing text (Fetch): " + response.statusText
+                );
+            }
 
-				const readChunk = async () => {
-					const { done, value } = await reader.read();
+            const reader = response.body && response.body.getReader();
+            let responseStr = "";
+            if (!reader) {
+                console.error("Reader not found");
+            } else {
+                const decoder = new TextDecoder();
 
-					if (done) {
-						new Notice("Text generation complete. Voila!");
-						updateConversationHistory(prompt + ": " + selectedText, responseStr, conversationHistory, maxConvHistory);
-						if (responseFormatting === true) {
-							modifySelectedText(responseFormatAppend);
-						}
-						return;
-					}
+                const readChunk = async () => {
+                    if (plugin.isKillSwitchActive) {
+                        reader.cancel();
+                        new Notice("Text generation stopped by kill switch");
+                        plugin.isKillSwitchActive = false; // Reset the kill switch
+                        return;
+                    }
 
-					let textChunk = decoder.decode(value);
-					const lines = textChunk.split("\n");
+                    const { done, value } = await reader.read();
 
-					for (const line of lines) {
-						if (line.trim()) {
-							try {
-								let modifiedLine = line.replace(
-									/^data:\s*/,
-									""
-								);
-								if (modifiedLine !== "[DONE]") {
-									const data = JSON.parse(modifiedLine);
-									if (data.choices[0].delta.content) {
-										let word =
-											data.choices[0].delta.content;
-										modifySelectedText(word);
-										responseStr += word;
-									}
-								}
-							} catch (error) {
-								console.error(
-									"Error parsing JSON chunk:",
-									error
-								);
-							}
-						}
-					}
-					readChunk();
-				};
-				readChunk();
-			}
-		} else {
-			const response = await requestUrl({
-				url: `${serverAddress}/v1/chat/completions`,
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(body),
-			});
+                    if (done) {
+                        new Notice("Text generation complete. Voila!");
+                        updateConversationHistory(prompt + ": " + selectedText, responseStr, plugin.conversationHistory, plugin.settings.maxConvHistory);
+                        if (plugin.settings.responseFormatting === true) {
+                            modifySelectedText(plugin.settings.responseFormatAppend);
+                        }
+                        return;
+                    }
 
-			const statusCode = response.status;
+                    let textChunk = decoder.decode(value);
+                    const lines = textChunk.split("\n");
 
-			if (statusCode >= 200 && statusCode < 300) {
-				const data = await response.json;
-				const summarizedText = data.choices[0].message.content;
-				console.log(summarizedText);
-				updateConversationHistory(prompt + ": " + selectedText, summarizedText, conversationHistory, maxConvHistory);
-				new Notice("Text generated. Voila!");
-				if (responseFormatting === true) {
-					modifySelectedText(summarizedText + responseFormatAppend);
-				} else {
-					modifySelectedText(summarizedText);
-				}
-			} else {
-				throw new Error(
-					"Error summarizing text (requestUrl): " + response.text
-				);
-			}
-		}
-	} catch (error) {
-		console.error("Error during request:", error);
-		new Notice(
-			"Error summarizing text: Check plugin console for more details!"
-		);
-	}
-	if (statusBarItemEl) {
-		statusBarItemEl.textContent = "LLM Helper: Ready";
-	} else {
-		console.error("Status bar item element not found");
-	}
+                    for (const line of lines) {
+                        if (line.trim()) {
+                            try {
+                                let modifiedLine = line.replace(
+                                    /^data:\s*/,
+                                    ""
+                                );
+                                if (modifiedLine !== "[DONE]") {
+                                    const data = JSON.parse(modifiedLine);
+                                    if (data.choices[0].delta.content) {
+                                        let word =
+                                            data.choices[0].delta.content;
+                                        modifySelectedText(word);
+                                        responseStr += word;
+                                    }
+                                }
+                            } catch (error) {
+                                console.error(
+                                    "Error parsing JSON chunk:",
+                                    error
+                                );
+                            }
+                        }
+                    }
+                    readChunk();
+                };
+                readChunk();
+            }
+        } else {
+            const response = await requestUrl({
+                url: `${plugin.settings.serverAddress}/v1/chat/completions`,
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+
+            const statusCode = response.status;
+
+            if (statusCode >= 200 && statusCode < 300) {
+                const data = await response.json;
+                const summarizedText = data.choices[0].message.content;
+                console.log(summarizedText);
+                updateConversationHistory(prompt + ": " + selectedText, summarizedText, plugin.conversationHistory, plugin.settings.maxConvHistory);
+                new Notice("Text generated. Voila!");
+                if (!plugin.isKillSwitchActive) {
+                    if (plugin.settings.responseFormatting === true) {
+                        modifySelectedText(summarizedText + plugin.settings.responseFormatAppend);
+                    } else {
+                        modifySelectedText(summarizedText);
+                    }
+                } else {
+                    new Notice("Text generation stopped by kill switch");
+                    plugin.isKillSwitchActive = false; // Reset the kill switch
+                }
+            } else {
+                throw new Error(
+                    "Error summarizing text (requestUrl): " + response.text
+                );
+            }
+        }
+    } catch (error) {
+        console.error("Error during request:", error);
+        new Notice(
+            "Error summarizing text: Check plugin console for more details!"
+        );
+    }
+    if (statusBarItemEl) {
+        statusBarItemEl.textContent = "LLM Helper: Ready";
+    } else {
+        console.error("Status bar item element not found");
+    }
 }
 
 function modifySelectedText(text: any) {

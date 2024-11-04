@@ -1,6 +1,6 @@
 # Local LLM Helper - Obsidian Plugin
 
-Seamlessly integrate your local LLM with Obsidian. Process large text chunks, transform content with AI, and maintain data privacy — all without leaving your notes.
+Seamlessly integrate your local LLM with Obsidian. Process large text chunks, transform content with AI, chat with your notes and maintain data privacy — all without leaving your notes.
 
 ## Core Features
 
@@ -14,12 +14,14 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 * Action Item Generation: Creates a structured list of actionable tasks from text.
 * Custom Prompts: Allows users to define and execute their own prompts for specialized tasks.
 * Prompt-as-Input: Uses the selected text directly as a prompt for creative text generation.
+* Generate backlinks: Generate backlinks to your notes.
 
 <img width="704" alt="image" src="https://github.com/user-attachments/assets/b55e305f-2f5c-4dab-9e67-251613065c67">
 
 #### LLM Chat Interface:
 * Interactive Chat Window: Engages in multi-turn conversations with the LLM for dynamic interaction.
 * Conversation History: Keeps track of past messages within the same session.
+* Chat with your notes: Chat with your indexed notes.
 
 <img width="577" alt="image" src="https://github.com/user-attachments/assets/b52b80db-b9a2-4986-8bb2-04aae264afcd">
 

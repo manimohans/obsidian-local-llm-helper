@@ -16,6 +16,9 @@ import {
 } from "obsidian";
 import { generateAndAppendTags } from "./autoTagger";
 import { UpdateNoticeModal } from "./updateNoticeModal";
+import { RAGManager } from './rag';
+import { BacklinkGenerator } from './backlinkGenerator';
+import { RAGChatModal } from './ragChatModal';
 
 // Remember to rename these classes and interfaces!
 
@@ -31,6 +34,7 @@ export interface OLocalLLMSettings {
 	responseFormatPrepend: string;
 	responseFormatAppend: string;
 	lastVersion: string;
+	embeddingModelName: string;
 }
 
 interface ConversationEntry {
@@ -49,7 +53,8 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	responseFormatting: false,
 	responseFormatPrepend: "``` LLM Helper - generated response \n\n",
 	responseFormatAppend: "\n\n```",
-	lastVersion: "0.0.0"
+	lastVersion: "0.0.0",
+	embeddingModelName: "nomic-embed-text",
 };
 
 const personasDict: { [key: string]: string } = {
@@ -72,6 +77,8 @@ export default class OLocalLLMPlugin extends Plugin {
 	modal: any;
 	conversationHistory: ConversationEntry[] = [];
 	isKillSwitchActive: boolean = false;
+	public ragManager: RAGManager;
+	private backlinkGenerator: BacklinkGenerator;
 
 	async checkForUpdates() {
         const currentVersion = this.manifest.version;
@@ -88,6 +95,30 @@ export default class OLocalLLMPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.checkForUpdates();
+		// Initialize RAGManager
+		this.ragManager = new RAGManager(this, this.app.vault, this.settings);
+
+		// Initialize BacklinkGenerator
+		this.backlinkGenerator = new BacklinkGenerator(this.ragManager, this.app.vault);
+
+		// Add command for RAG Backlinks
+		this.addCommand({
+			id: 'generate-rag-backlinks',
+			name: 'Generate RAG Backlinks (BETA)',
+			callback: this.handleGenerateBacklinks.bind(this),
+		});
+
+		// Remove the automatic indexing
+		// this.indexNotes();
+		this.addCommand({
+			id: 'rag-chat',
+			name: 'Chat with your notes (RAG) - BETA',
+			callback: () => {
+				new Notice("This is a beta feature. Please use with caution. Please make sure you have indexed your notes before using this feature.");
+				const ragChatModal = new RAGChatModal(this.app, this.settings, this.ragManager);
+				ragChatModal.open();
+			},
+		});
 
 		this.addCommand({
 			id: "summarize-selected-text",
@@ -358,10 +389,52 @@ export default class OLocalLLMPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
+	async indexNotes() {
+		new Notice('Indexing notes for RAG...');
+		try {
+			await this.ragManager.indexNotes(progress => {
+				// You can use the progress value here if needed
+				console.log(`Indexing progress: ${progress * 100}%`);
+			});
+			new Notice('Notes indexed successfully!');
+		} catch (error) {
+			console.error('Error indexing notes:', error);
+			new Notice('Failed to index notes. Check console for details.');
+		}
+	}
+
+	async handleGenerateBacklinks() {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (!activeView) {
+			new Notice('No active Markdown view');
+			return;
+		}
+
+		const editor = activeView.editor;
+		const selectedText = editor.getSelection();
+
+		if (!selectedText) {
+			new Notice('No text selected');
+			return;
+		}
+
+		new Notice('Generating backlinks...');
+		const backlinks = await this.backlinkGenerator.generateBacklinks(selectedText);
+
+		if (backlinks.length > 0) {
+			editor.replaceSelection(`${selectedText}\n\nRelated:\n${backlinks.join('\n')}`);
+			new Notice(`Generated ${backlinks.length} backlinks`);
+		} else {
+			new Notice('No relevant backlinks found');
+		}
+	}
 }
 
 class OLLMSettingTab extends PluginSettingTab {
 	plugin: OLocalLLMPlugin;
+	private indexingProgressBar: HTMLProgressElement | null = null;
+	private indexedFilesCountSetting: Setting | null = null;
 
 	constructor(app: App, plugin: OLocalLLMPlugin) {
 		super(app, plugin);
@@ -518,6 +591,81 @@ class OLLMSettingTab extends PluginSettingTab {
 							})
 					);
 			}
+
+			new Setting(containerEl)
+				.setName("Embedding Model Name")
+				.setDesc("Name of the model to use for embeddings")
+				.addText((text) =>
+					text
+						.setPlaceholder("llama2")
+						.setValue(this.plugin.settings.embeddingModelName)
+						.onChange(async (value) => {
+							this.plugin.settings.embeddingModelName = value;
+							await this.plugin.saveSettings();
+						})
+				);
+
+			new Setting(containerEl)
+				.setName("Index Notes (BETA)")
+				.setDesc("Manually index all notes in the vault")
+				.addButton(button => button
+					.setButtonText("Start Indexing (BETA)")
+					.onClick(async () => {
+						button.setDisabled(true);
+						this.indexingProgressBar = containerEl.createEl("progress", {
+							attr: { value: 0, max: 100 }
+						});
+						const counterEl = containerEl.createEl("span", {
+							text: "Processing: 0/?",
+							cls: "indexing-counter"
+						});
+						
+						const totalFiles = this.app.vault.getMarkdownFiles().length;
+						let processedFiles = 0;
+
+						try {
+							await this.plugin.ragManager.indexNotes((progress) => {
+								if (this.indexingProgressBar) {
+									this.indexingProgressBar.value = progress * 100;
+								}
+								processedFiles = Math.floor(progress * totalFiles);
+								counterEl.textContent = `   Processing: ${processedFiles}/${totalFiles}`;
+								counterEl.style.fontSize = 'smaller';
+							});
+							new Notice("Indexing complete!");
+							this.updateIndexedFilesCount();
+						} catch (error) {
+							console.error("Indexing error:", error);
+							new Notice("Error during indexing. Check console for details.");
+						} finally {
+							button.setDisabled(false);
+							if (this.indexingProgressBar) {
+								this.indexingProgressBar.remove();
+								this.indexingProgressBar = null;
+							}
+							counterEl.remove();
+						}
+					}));
+
+			this.indexedFilesCountSetting = new Setting(containerEl)
+				.setName("Indexed Files Count")
+				.setDesc("Number of files currently indexed")
+				.addText(text => text
+					.setValue(this.plugin.ragManager.getIndexedFilesCount().toString())
+					.setDisabled(true));
+
+			// Add note about memory vector store
+			containerEl.createEl("p", {
+				text: "Note: The vector store is currently held in memory and will be reset upon app reload. Future updates will implement persistent storage.",
+				cls: "setting-item-description"
+			});
+	}
+
+	updateIndexedFilesCount() {
+		if (this.indexedFilesCountSetting) {
+			const textComponent = this.indexedFilesCountSetting.components[0] as TextComponent;
+			textComponent.setValue(this.plugin.ragManager.getIndexedFilesCount().toString());
+		}
 	}
 }
 

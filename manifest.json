@@ -1,8 +1,8 @@
 {
 	"id": "local-llm-helper",
 	"name": "Local LLM Helper",
-	"version": "2.1.1",
-	"minAppVersion": "1.5.12",
+	"version": "2.1.2",
+	"minAppVersion": "1.7.0",
 	"description": "Use your own secure local LLM server to work with your text!",
 	"author": "Mani Mohan",
 	"authorUrl": "https:/warpcast.com/mani",

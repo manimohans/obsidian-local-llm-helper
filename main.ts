@@ -35,6 +35,7 @@ export interface OLocalLLMSettings {
 	responseFormatAppend: string;
 	lastVersion: string;
 	embeddingModelName: string;
+	braveSearchApiKey: string;
 }
 
 interface ConversationEntry {
@@ -55,6 +56,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	responseFormatAppend: "\n\n```",
 	lastVersion: "0.0.0",
 	embeddingModelName: "nomic-embed-text",
+	braveSearchApiKey: "",
 };
 
 const personasDict: { [key: string]: string } = {
@@ -218,6 +220,29 @@ export default class OLocalLLMPlugin extends Plugin {
 			},
 		  });
 
+		this.addCommand({
+			id: "web-search-selected-text",
+			name: "Search web for selected text",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false;
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processWebSearch(selectedText, this);
+				}
+			},
+		});
+
+		this.addCommand({
+			id: "web-news-search",
+			name: "Search news (Web) for selected text",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				let selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					processNewsSearch(selectedText, this);
+				}
+			},
+		});
+
 		this.addRibbonIcon("brain-cog", "LLM Context", (event) => {
 			const menu = new Menu();
 
@@ -335,6 +360,30 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
+					.setTitle("Search (Web)")
+					.setIcon("globe")
+					.onClick(async () => {
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processWebSearch(selectedText, this);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("News Search (Web)")
+					.setIcon("newspaper")
+					.onClick(async () => {
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processNewsSearch(selectedText, this);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
 					.setTitle("Kill Switch")
 					.setIcon("x-circle")
 					.onClick(() => {
@@ -343,7 +392,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					})
 			);
 
-			menu.showAtMouseEvent(event);
+			menu.showAtMouseEvent(event as MouseEvent);
 		});
 
 		const statusBarItemEl = this.addStatusBarItem();
@@ -601,6 +650,19 @@ class OLLMSettingTab extends PluginSettingTab {
 						.setValue(this.plugin.settings.embeddingModelName)
 						.onChange(async (value) => {
 							this.plugin.settings.embeddingModelName = value;
+							await this.plugin.saveSettings();
+						})
+				);
+
+			new Setting(containerEl)
+				.setName("Brave Search API Key")
+				.setDesc("API key for Brave Search integration")
+				.addText((text) =>
+					text
+						.setPlaceholder("Enter your Brave Search API key")
+						.setValue(this.plugin.settings.braveSearchApiKey)
+						.onChange(async (value) => {
+							this.plugin.settings.braveSearchApiKey = value;
 							await this.plugin.saveSettings();
 						})
 				);
@@ -1152,3 +1214,77 @@ function updateConversationHistory(prompt: string, response: string, conversatio
 //TODO: add a button to save the chat history to a obsidian file
 
 //TODO: kill switch
+
+async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
+    if (!plugin.settings.braveSearchApiKey) {
+        new Notice("Please set your Brave Search API key in settings");
+        return;
+    }
+
+    new Notice("Searching the web...");
+    
+    try {
+        const response = await requestUrl({
+            url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+                "X-Subscription-Token": plugin.settings.braveSearchApiKey,
+            }
+        });
+
+        if (response.status !== 200) {
+            throw new Error("Search failed: " + response.status);
+        }
+
+        const searchResults = response.json.web.results;
+        const context = searchResults.map((result: any) => {
+            let snippets = result.extra_snippets ? 
+                '\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
+            return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
+        }).join('');
+
+        processText(
+            `Based on these comprehensive search results about "${query}":\n\n${context}`,
+            "You are a helpful assistant. Analyze these detailed search results and provide a thorough, well-structured response. Include relevant source citations and consider multiple perspectives if available.",
+            plugin
+        );
+
+    } catch (error) {
+        console.error("Web search error:", error);
+        new Notice("Web search failed. Check console for details.");
+    }
+}
+
+async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
+    try {
+        const response = await requestUrl({
+            url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "Accept-Encoding": "gzip",
+                "X-Subscription-Token": plugin.settings.braveSearchApiKey,
+            }
+        });
+
+        if (response.status !== 200) {
+            throw new Error("News search failed: " + response.status);
+        }
+
+        const newsResults = response.json.results;
+        const context = newsResults.map((result: any) => 
+            `${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
+        ).join('');
+
+        processText(
+            `Based on these news results about "${query}":\n\n${context}`,
+            "Analyze these news results and provide a comprehensive summary with key points and timeline. Include source citations.",
+            plugin
+        );
+    } catch (error) {
+        console.error("News search error:", error);
+        new Notice("News search failed. Check console for details.");
+    }
+}

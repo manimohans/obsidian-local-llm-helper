@@ -15,6 +15,8 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 * Custom Prompts: Allows users to define and execute their own prompts for specialized tasks.
 * Prompt-as-Input: Uses the selected text directly as a prompt for creative text generation.
 * Generate backlinks: Generate backlinks to your notes.
+* Web Search: Search the web for selected text.
+* News Search: Search the news for selected text.
 
 <img width="704" alt="image" src="https://github.com/user-attachments/assets/b55e305f-2f5c-4dab-9e67-251613065c67">
 

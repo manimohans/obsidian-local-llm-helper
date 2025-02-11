@@ -12,9 +12,11 @@ export class UpdateNoticeModal extends Modal {
         const changelogMd = `
 ## What's New
 ### Major Update ${this.version}
-- Chat with your notes (RAG) - BETA
-- Generate backlinks - BETA
-- Index notes - BETA
+- Chat with your notes (RAG) - BETA (Improvements)
+- Generate backlinks - BETA (Improvements)
+- Index notes - BETA (Improvements)
+- Web Search - BETA
+- News Search - BETA
 
 [Full Changelog](https://github.com/manimohans/obsidian-local-llm-helper/releases)
         `;

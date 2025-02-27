@@ -27,15 +27,19 @@ export interface OLocalLLMSettings {
 	llmModel: string;
 	stream: boolean;
 	customPrompt: string;
+	maxTokens: number;
+	maxConvHistory: number;
 	outputMode: string;
 	personas: string;
-	maxConvHistory: number;
+	providerType: string;
 	responseFormatting: boolean;
 	responseFormatPrepend: string;
 	responseFormatAppend: string;
+	temperature: number;
 	lastVersion: string;
 	embeddingModelName: string;
 	braveSearchApiKey: string;
+	openAIApiKey?: string;
 }
 
 interface ConversationEntry {
@@ -46,6 +50,9 @@ interface ConversationEntry {
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverAddress: "http://localhost:1234",
 	llmModel: "llama3",
+	maxTokens: 1024,
+	temperature: 0.7,
+	providerType: "ollama",
 	stream: false,
 	customPrompt: "create a todo list from the following text:",
 	outputMode: "replace",
@@ -57,21 +64,22 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	lastVersion: "0.0.0",
 	embeddingModelName: "nomic-embed-text",
 	braveSearchApiKey: "",
+	openAIApiKey: "lm-studio"
 };
 
 const personasDict: { [key: string]: string } = {
-    "default": "Default",
-    "physics": "Physics expert",
-    "fitness": "Fitness expert",
-    "developer": "Software Developer",
-    "stoic": "Stoic Philosopher",
-    "productmanager": "Product Manager",
-    "techwriter": "Technical Writer",
-    "creativewriter": "Creative Writer",
-    "tpm": "Technical Program Manager",
-    "engineeringmanager": "Engineering Manager",
-    "executive": "Executive",
-    "officeassistant": "Office Assistant"
+	"default": "Default",
+	"physics": "Physics expert",
+	"fitness": "Fitness expert",
+	"developer": "Software Developer",
+	"stoic": "Stoic Philosopher",
+	"productmanager": "Product Manager",
+	"techwriter": "Technical Writer",
+	"creativewriter": "Creative Writer",
+	"tpm": "Technical Program Manager",
+	"engineeringmanager": "Engineering Manager",
+	"executive": "Executive",
+	"officeassistant": "Office Assistant"
 };
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -83,16 +91,16 @@ export default class OLocalLLMPlugin extends Plugin {
 	private backlinkGenerator: BacklinkGenerator;
 
 	async checkForUpdates() {
-        const currentVersion = this.manifest.version;
-        const lastVersion = this.settings.lastVersion || "0.0.0";
+		const currentVersion = this.manifest.version;
+		const lastVersion = this.settings.lastVersion || "0.0.0";
 		//const lastVersion = "0.0.0";
 
-        if (currentVersion !== lastVersion) {
-            new UpdateNoticeModal(this.app, currentVersion).open();
-            this.settings.lastVersion = currentVersion;
-            await this.saveSettings();
-        }
-    }
+		if (currentVersion !== lastVersion) {
+			new UpdateNoticeModal(this.app, currentVersion).open();
+			this.settings.lastVersion = currentVersion;
+			await this.saveSettings();
+		}
+	}
 
 	async onload() {
 		await this.loadSettings();
@@ -207,18 +215,18 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "llm-chat",
 			name: "Chat with Local LLM Helper",
 			callback: () => {
-			  const chatModal = new LLMChatModal(this.app, this.settings);
-			  chatModal.open();
+				const chatModal = new LLMChatModal(this.app, this.settings);
+				chatModal.open();
 			},
-		  });
+		});
 
 		this.addCommand({
 			id: "llm-hashtag",
 			name: "Generate hashtags for selected text",
 			callback: () => {
-			  generateAndAppendTags(this.app, this.settings);
+				generateAndAppendTags(this.app, this.settings);
 			},
-		  });
+		});
 
 		this.addCommand({
 			id: "web-search-selected-text",
@@ -425,7 +433,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		return "";
 	}
 
-	onunload() {}
+	onunload() { }
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -495,6 +503,22 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
+		// In the OLLMSettingTab class's display() method, add these new settings:
+		new Setting(containerEl)
+			.setName("LLM Provider")
+			.setDesc("Choose between Ollama and OpenAI-compatible providers")
+			.addDropdown(dropdown =>
+				dropdown
+					.addOption('ollama', 'Ollama')
+					.addOption('openai', 'OpenAI/LM Studio')
+					.setValue(this.plugin.settings.providerType)
+					.onChange(async (value: 'ollama' | 'openai') => {
+						this.plugin.settings.providerType = value;
+						await this.plugin.saveSettings();
+						this.display(); // Refresh settings UI
+					})
+			);
+
 		new Setting(containerEl)
 			.setName("Server address")
 			.setDesc("Full server URL (including protocol and port if needed). E.g., http://localhost:1234 or https://api.example.com")
@@ -514,7 +538,7 @@ class OLLMSettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("Model name")
-					.setValue(this.plugin.settings.llmModel) 
+					.setValue(this.plugin.settings.llmModel)
 					.onChange(async (value) => {
 						this.plugin.settings.llmModel = value;
 						await this.plugin.saveSettings();
@@ -549,42 +573,74 @@ class OLLMSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
-		
-			new Setting(containerEl)
-            .setName("Output Mode")
-            .setDesc("Choose how to handle generated text")
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption("replace", "Replace selected text")
-                    .addOption("append", "Append after selected text")
-                    .setValue(this.plugin.settings.outputMode)
-                    .onChange(async (value) => {
-                        this.plugin.settings.outputMode = value;
-                        await this.plugin.saveSettings();
-                    })
-            );
 
-			new Setting(containerEl)
-            .setName("Personas")
-            .setDesc("Choose persona for your AI agent")
-            .addDropdown(dropdown => {
-                for (const key in personasDict) { // Iterate over keys directly
-                    if (personasDict.hasOwnProperty(key)) { 
-                        dropdown.addOption(key, personasDict[key]); 
-                    }
-                }
-                dropdown.setValue(this.plugin.settings.personas)
-                    .onChange(async (value) => {
-                        this.plugin.settings.personas = value;
-                        await this.plugin.saveSettings();
-                    });
-            });
+		new Setting(containerEl)
+			.setName("Output Mode")
+			.setDesc("Choose how to handle generated text")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("replace", "Replace selected text")
+					.addOption("append", "Append after selected text")
+					.setValue(this.plugin.settings.outputMode)
+					.onChange(async (value) => {
+						this.plugin.settings.outputMode = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
-			new Setting(containerEl)
-				.setName("Max conversation history")
-				.setDesc("Maximum number of conversation history to store (0-3)")
-				.addDropdown((dropdown) =>
-					dropdown
+		new Setting(containerEl)
+			.setName("Personas")
+			.setDesc("Choose persona for your AI agent")
+			.addDropdown(dropdown => {
+				for (const key in personasDict) { // Iterate over keys directly
+					if (personasDict.hasOwnProperty(key)) {
+						dropdown.addOption(key, personasDict[key]);
+					}
+				}
+				dropdown.setValue(this.plugin.settings.personas)
+					.onChange(async (value) => {
+						this.plugin.settings.personas = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("Max Tokens")
+			.setDesc("Max number of tokens for LLM response (generally 1-4000)")
+			.addText((text) =>
+				text
+					.setPlaceholder("1024")
+					.setValue(this.plugin.settings.maxTokens.toString())
+					.onChange(async (value) => {
+						const parsedValue = parseInt(value);
+						if (!isNaN(parsedValue) && parsedValue >= 0) {
+							this.plugin.settings.maxTokens = parsedValue;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Temperature")
+			.setDesc("Increase for more randomness, decrease for more reliability")
+			.addText((text) =>
+				text
+					.setPlaceholder("0.7")
+					.setValue(this.plugin.settings.temperature.toString())
+					.onChange(async (value) => {
+						const parsedValue = parseFloat(value);
+						if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue <= 1) {
+							this.plugin.settings.temperature = parsedValue;
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Max conversation history")
+			.setDesc("Maximum number of conversation history to store (0-3)")
+			.addDropdown((dropdown) =>
+				dropdown
 					.addOption("0", "0")
 					.addOption("1", "1")
 					.addOption("2", "2")
@@ -594,133 +650,148 @@ class OLLMSettingTab extends PluginSettingTab {
 						this.plugin.settings.maxConvHistory = parseInt(value);
 						await this.plugin.saveSettings();
 					})
-				);
+			);
 
 
 
-			//new settings for response formatting boolean default false
+		//new settings for response formatting boolean default false
 
-			const responseFormattingToggle = new Setting(containerEl)
-				.setName("Response Formatting")
-				.setDesc("Enable to format the response into a separate block")
-				.addToggle((toggle) =>
-					toggle
-						.setValue(this.plugin.settings.responseFormatting)
-						.onChange(async (value) => {
-							this.plugin.settings.responseFormatting = value;
-							await this.plugin.saveSettings();
-							this.display(); // Refresh the settings tab
-						})
-				);
+		const responseFormattingToggle = new Setting(containerEl)
+			.setName("Response Formatting")
+			.setDesc("Enable to format the response into a separate block")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.responseFormatting)
+					.onChange(async (value) => {
+						this.plugin.settings.responseFormatting = value;
+						await this.plugin.saveSettings();
+						this.display(); // Refresh the settings tab
+					})
+			);
 
-			if (this.plugin.settings.responseFormatting) {
-				new Setting(containerEl)
-					.setName("Response Format Prepend")
-					.setDesc("Text to prepend to the formatted response")
-					.addText((text) =>
-						text
-							.setPlaceholder("``` LLM Helper - generated response \n\n")
-							.setValue(this.plugin.settings.responseFormatPrepend)
-							.onChange(async (value) => {
-								this.plugin.settings.responseFormatPrepend = value;
-								await this.plugin.saveSettings();
-							})
-					);
-
-				new Setting(containerEl)
-					.setName("Response Format Append")
-					.setDesc("Text to append to the formatted response")
-					.addText((text) =>
-						text
-							.setPlaceholder("\n\n```")
-							.setValue(this.plugin.settings.responseFormatAppend)
-							.onChange(async (value) => {
-								this.plugin.settings.responseFormatAppend = value;
-								await this.plugin.saveSettings();
-							})
-					);
-			}
-
+		if (this.plugin.settings.responseFormatting) {
 			new Setting(containerEl)
-				.setName("Embedding Model Name")
-				.setDesc("Name of the model to use for embeddings")
+				.setName("Response Format Prepend")
+				.setDesc("Text to prepend to the formatted response")
 				.addText((text) =>
 					text
-						.setPlaceholder("llama2")
-						.setValue(this.plugin.settings.embeddingModelName)
+						.setPlaceholder("``` LLM Helper - generated response \n\n")
+						.setValue(this.plugin.settings.responseFormatPrepend)
 						.onChange(async (value) => {
-							this.plugin.settings.embeddingModelName = value;
+							this.plugin.settings.responseFormatPrepend = value;
 							await this.plugin.saveSettings();
 						})
 				);
 
 			new Setting(containerEl)
-				.setName("Brave Search API Key")
-				.setDesc("API key for Brave Search integration")
+				.setName("Response Format Append")
+				.setDesc("Text to append to the formatted response")
 				.addText((text) =>
 					text
-						.setPlaceholder("Enter your Brave Search API key")
-						.setValue(this.plugin.settings.braveSearchApiKey)
+						.setPlaceholder("\n\n```")
+						.setValue(this.plugin.settings.responseFormatAppend)
 						.onChange(async (value) => {
-							this.plugin.settings.braveSearchApiKey = value;
+							this.plugin.settings.responseFormatAppend = value;
 							await this.plugin.saveSettings();
 						})
 				);
+		}
 
+		new Setting(containerEl)
+			.setName("Embedding Model Name")
+			.setDesc("Name of the model to use for embeddings")
+			.addText((text) =>
+				text
+					.setPlaceholder("llama2")
+					.setValue(this.plugin.settings.embeddingModelName)
+					.onChange(async (value) => {
+						this.plugin.settings.embeddingModelName = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Brave Search API Key")
+			.setDesc("API key for Brave Search integration")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your Brave Search API key")
+					.setValue(this.plugin.settings.braveSearchApiKey)
+					.onChange(async (value) => {
+						this.plugin.settings.braveSearchApiKey = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		// Add OpenAI API Key setting (conditional)
+		if (this.plugin.settings.providerType === 'openai') {
 			new Setting(containerEl)
-				.setName("Index Notes (BETA)")
-				.setDesc("Manually index all notes in the vault")
-				.addButton(button => button
-					.setButtonText("Start Indexing (BETA)")
-					.onClick(async () => {
-						button.setDisabled(true);
-						this.indexingProgressBar = containerEl.createEl("progress", {
-							attr: { value: 0, max: 100 }
-						});
-						const counterEl = containerEl.createEl("span", {
-							text: "Processing: 0/?",
-							cls: "indexing-counter"
-						});
-						
-						const totalFiles = this.app.vault.getMarkdownFiles().length;
-						let processedFiles = 0;
-
-						try {
-							await this.plugin.ragManager.indexNotes((progress) => {
-								if (this.indexingProgressBar) {
-									this.indexingProgressBar.value = progress * 100;
-								}
-								processedFiles = Math.floor(progress * totalFiles);
-								counterEl.textContent = `   Processing: ${processedFiles}/${totalFiles}`;
-								counterEl.style.fontSize = 'smaller';
-							});
-							new Notice("Indexing complete!");
-							this.updateIndexedFilesCount();
-						} catch (error) {
-							console.error("Indexing error:", error);
-							new Notice("Error during indexing. Check console for details.");
-						} finally {
-							button.setDisabled(false);
-							if (this.indexingProgressBar) {
-								this.indexingProgressBar.remove();
-								this.indexingProgressBar = null;
-							}
-							counterEl.remove();
-						}
-					}));
-
-			this.indexedFilesCountSetting = new Setting(containerEl)
-				.setName("Indexed Files Count")
-				.setDesc("Number of files currently indexed")
+				.setName("OpenAI API Key")
+				.setDesc("Required for OpenAI/LM Studio (use 'lm-studio' for local instances)")
 				.addText(text => text
-					.setValue(this.plugin.ragManager.getIndexedFilesCount().toString())
-					.setDisabled(true));
+					.setPlaceholder("Enter your API key")
+					.setValue(this.plugin.settings.openAIApiKey || '')
+					.onChange(async (value) => {
+						this.plugin.settings.openAIApiKey = value;
+						await this.plugin.saveSettings();
+					})
+				);
+		}
 
-			// Add note about memory vector store
-			containerEl.createEl("p", {
-				text: "Note: The vector store is currently held in memory and will be reset upon app reload. Future updates will implement persistent storage.",
-				cls: "setting-item-description"
-			});
+		new Setting(containerEl)
+			.setName("Index Notes (BETA)")
+			.setDesc("Manually index all notes in the vault")
+			.addButton(button => button
+				.setButtonText("Start Indexing (BETA)")
+				.onClick(async () => {
+					button.setDisabled(true);
+					this.indexingProgressBar = containerEl.createEl("progress", {
+						attr: { value: 0, max: 100 }
+					});
+					const counterEl = containerEl.createEl("span", {
+						text: "Processing: 0/?",
+						cls: "indexing-counter"
+					});
+
+					const totalFiles = this.app.vault.getMarkdownFiles().length;
+					let processedFiles = 0;
+
+					try {
+						await this.plugin.ragManager.indexNotes((progress) => {
+							if (this.indexingProgressBar) {
+								this.indexingProgressBar.value = progress * 100;
+							}
+							processedFiles = Math.floor(progress * totalFiles);
+							counterEl.textContent = `   Processing: ${processedFiles}/${totalFiles}`;
+							counterEl.style.fontSize = 'smaller';
+						});
+						new Notice("Indexing complete!");
+						this.updateIndexedFilesCount();
+					} catch (error) {
+						console.error("Indexing error:", error);
+						new Notice("Error during indexing. Check console for details.");
+					} finally {
+						button.setDisabled(false);
+						if (this.indexingProgressBar) {
+							this.indexingProgressBar.remove();
+							this.indexingProgressBar = null;
+						}
+						counterEl.remove();
+					}
+				}));
+
+		this.indexedFilesCountSetting = new Setting(containerEl)
+			.setName("Indexed Files Count")
+			.setDesc("Number of files currently indexed")
+			.addText(text => text
+				.setValue(this.plugin.ragManager.getIndexedFilesCount().toString())
+				.setDisabled(true));
+
+		// Add note about memory vector store
+		containerEl.createEl("p", {
+			text: "Note: The vector store is currently held in memory and will be reset upon app reload. Future updates will implement persistent storage.",
+			cls: "setting-item-description"
+		});
 	}
 
 	updateIndexedFilesCount() {
@@ -762,166 +833,166 @@ export function modifyPrompt(aprompt: string, personas: string): string {
 }
 
 async function processText(
-    selectedText: string,
-    iprompt: string,
-    plugin: OLocalLLMPlugin
+	selectedText: string,
+	iprompt: string,
+	plugin: OLocalLLMPlugin
 ) {
-    // Reset kill switch state at the beginning of each process
-    plugin.isKillSwitchActive = false;
+	// Reset kill switch state at the beginning of each process
+	plugin.isKillSwitchActive = false;
 
-    new Notice("Generating response. This takes a few seconds..");
-    const statusBarItemEl = document.querySelector(
-        ".status-bar .status-bar-item"
-    );
-    if (statusBarItemEl) {
-        statusBarItemEl.textContent = "LLM Helper: Generating response...";
-    } else {
-        console.error("Status bar item element not found");
-    }
-    
-    let prompt = modifyPrompt(iprompt, plugin.settings.personas);
-    
-    console.log("prompt", prompt + ": " + selectedText);
+	new Notice("Generating response. This takes a few seconds..");
+	const statusBarItemEl = document.querySelector(
+		".status-bar .status-bar-item"
+	);
+	if (statusBarItemEl) {
+		statusBarItemEl.textContent = "LLM Helper: Generating response...";
+	} else {
+		console.error("Status bar item element not found");
+	}
 
-    const body = {
-        model: plugin.settings.llmModel,
-        messages: [
-            { role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
-            ...plugin.conversationHistory.slice(-plugin.settings.maxConvHistory).reduce((acc, entry) => {
-                acc.push({ role: "user", content: entry.prompt });
-                acc.push({ role: "assistant", content: entry.response });
-                return acc;
-            }, [] as { role: string; content: string }[]),
-            { role: "user", content: prompt + ": " + selectedText },
-        ],
-        temperature: 0.7,
-        max_tokens: -1,
-        stream: plugin.settings.stream,
-    };
+	let prompt = modifyPrompt(iprompt, plugin.settings.personas);
 
-    try {
-        if (plugin.settings.outputMode === "append") {
-            modifySelectedText(selectedText + "\n\n");
-        }
-        if (plugin.settings.responseFormatting === true) {
-            modifySelectedText(plugin.settings.responseFormatPrepend);
-        }
-        if (plugin.settings.stream) {
-            const response = await fetch(
-                `${plugin.settings.serverAddress}/v1/chat/completions`,
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(body),
-                }
-            );
+	console.log("prompt", prompt + ": " + selectedText);
 
-            if (!response.ok) {
-                throw new Error(
-                    "Error summarizing text (Fetch): " + response.statusText
-                );
-            }
+	const body = {
+		model: plugin.settings.llmModel,
+		messages: [
+			{ role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+			...plugin.conversationHistory.slice(-plugin.settings.maxConvHistory).reduce((acc, entry) => {
+				acc.push({ role: "user", content: entry.prompt });
+				acc.push({ role: "assistant", content: entry.response });
+				return acc;
+			}, [] as { role: string; content: string }[]),
+			{ role: "user", content: prompt + ": " + selectedText },
+		],
+		temperature: plugin.settings.temperature,
+		max_tokens: plugin.settings.maxTokens,
+		stream: plugin.settings.stream,
+	};
 
-            const reader = response.body && response.body.getReader();
-            let responseStr = "";
-            if (!reader) {
-                console.error("Reader not found");
-            } else {
-                const decoder = new TextDecoder();
+	try {
+		if (plugin.settings.outputMode === "append") {
+			modifySelectedText(selectedText + "\n\n");
+		}
+		if (plugin.settings.responseFormatting === true) {
+			modifySelectedText(plugin.settings.responseFormatPrepend);
+		}
+		if (plugin.settings.stream) {
+			const response = await fetch(
+				`${plugin.settings.serverAddress}/v1/chat/completions`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify(body),
+				}
+			);
 
-                const readChunk = async () => {
-                    if (plugin.isKillSwitchActive) {
-                        reader.cancel();
-                        new Notice("Text generation stopped by kill switch");
-                        plugin.isKillSwitchActive = false; // Reset the kill switch
-                        return;
-                    }
+			if (!response.ok) {
+				throw new Error(
+					"Error summarizing text (Fetch): " + response.statusText
+				);
+			}
 
-                    const { done, value } = await reader.read();
+			const reader = response.body && response.body.getReader();
+			let responseStr = "";
+			if (!reader) {
+				console.error("Reader not found");
+			} else {
+				const decoder = new TextDecoder();
 
-                    if (done) {
-                        new Notice("Text generation complete. Voila!");
-                        updateConversationHistory(prompt + ": " + selectedText, responseStr, plugin.conversationHistory, plugin.settings.maxConvHistory);
-                        if (plugin.settings.responseFormatting === true) {
-                            modifySelectedText(plugin.settings.responseFormatAppend);
-                        }
-                        return;
-                    }
+				const readChunk = async () => {
+					if (plugin.isKillSwitchActive) {
+						reader.cancel();
+						new Notice("Text generation stopped by kill switch");
+						plugin.isKillSwitchActive = false; // Reset the kill switch
+						return;
+					}
 
-                    let textChunk = decoder.decode(value);
-                    const lines = textChunk.split("\n");
+					const { done, value } = await reader.read();
 
-                    for (const line of lines) {
-                        if (line.trim()) {
-                            try {
-                                let modifiedLine = line.replace(
-                                    /^data:\s*/,
-                                    ""
-                                );
-                                if (modifiedLine !== "[DONE]") {
-                                    const data = JSON.parse(modifiedLine);
-                                    if (data.choices[0].delta.content) {
-                                        let word =
-                                            data.choices[0].delta.content;
-                                        modifySelectedText(word);
-                                        responseStr += word;
-                                    }
-                                }
-                            } catch (error) {
-                                console.error(
-                                    "Error parsing JSON chunk:",
-                                    error
-                                );
-                            }
-                        }
-                    }
-                    readChunk();
-                };
-                readChunk();
-            }
-        } else {
-            const response = await requestUrl({
-                url: `${plugin.settings.serverAddress}/v1/chat/completions`,
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
+					if (done) {
+						new Notice("Text generation complete. Voila!");
+						updateConversationHistory(prompt + ": " + selectedText, responseStr, plugin.conversationHistory, plugin.settings.maxConvHistory);
+						if (plugin.settings.responseFormatting === true) {
+							modifySelectedText(plugin.settings.responseFormatAppend);
+						}
+						return;
+					}
 
-            const statusCode = response.status;
+					let textChunk = decoder.decode(value);
+					const lines = textChunk.split("\n");
 
-            if (statusCode >= 200 && statusCode < 300) {
-                const data = await response.json;
-                const summarizedText = data.choices[0].message.content;
-                console.log(summarizedText);
-                updateConversationHistory(prompt + ": " + selectedText, summarizedText, plugin.conversationHistory, plugin.settings.maxConvHistory);
-                new Notice("Text generated. Voila!");
-                if (!plugin.isKillSwitchActive) {
-                    if (plugin.settings.responseFormatting === true) {
-                        modifySelectedText(summarizedText + plugin.settings.responseFormatAppend);
-                    } else {
-                        modifySelectedText(summarizedText);
-                    }
-                } else {
-                    new Notice("Text generation stopped by kill switch");
-                    plugin.isKillSwitchActive = false; // Reset the kill switch
-                }
-            } else {
-                throw new Error(
-                    "Error summarizing text (requestUrl): " + response.text
-                );
-            }
-        }
-    } catch (error) {
-        console.error("Error during request:", error);
-        new Notice(
-            "Error summarizing text: Check plugin console for more details!"
-        );
-    }
-    if (statusBarItemEl) {
-        statusBarItemEl.textContent = "LLM Helper: Ready";
-    } else {
-        console.error("Status bar item element not found");
-    }
+					for (const line of lines) {
+						if (line.trim()) {
+							try {
+								let modifiedLine = line.replace(
+									/^data:\s*/,
+									""
+								);
+								if (modifiedLine !== "[DONE]") {
+									const data = JSON.parse(modifiedLine);
+									if (data.choices[0].delta.content) {
+										let word =
+											data.choices[0].delta.content;
+										modifySelectedText(word);
+										responseStr += word;
+									}
+								}
+							} catch (error) {
+								console.error(
+									"Error parsing JSON chunk:",
+									error
+								);
+							}
+						}
+					}
+					readChunk();
+				};
+				readChunk();
+			}
+		} else {
+			const response = await requestUrl({
+				url: `${plugin.settings.serverAddress}/v1/chat/completions`,
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(body),
+			});
+
+			const statusCode = response.status;
+
+			if (statusCode >= 200 && statusCode < 300) {
+				const data = await response.json;
+				const summarizedText = data.choices[0].message.content;
+				console.log(summarizedText);
+				updateConversationHistory(prompt + ": " + selectedText, summarizedText, plugin.conversationHistory, plugin.settings.maxConvHistory);
+				new Notice("Text generated. Voila!");
+				if (!plugin.isKillSwitchActive) {
+					if (plugin.settings.responseFormatting === true) {
+						modifySelectedText(summarizedText + plugin.settings.responseFormatAppend);
+					} else {
+						modifySelectedText(summarizedText);
+					}
+				} else {
+					new Notice("Text generation stopped by kill switch");
+					plugin.isKillSwitchActive = false; // Reset the kill switch
+				}
+			} else {
+				throw new Error(
+					"Error summarizing text (requestUrl): " + response.text
+				);
+			}
+		}
+	} catch (error) {
+		console.error("Error during request:", error);
+		new Notice(
+			"Error summarizing text: Check plugin console for more details!"
+		);
+	}
+	if (statusBarItemEl) {
+		statusBarItemEl.textContent = "LLM Helper: Ready";
+	} else {
+		console.error("Status bar item element not found");
+	}
 }
 
 function modifySelectedText(text: any) {
@@ -945,268 +1016,268 @@ function modifySelectedText(text: any) {
 }
 
 export class LLMChatModal extends Modal {
-  result: string = "";
-  pluginSettings: OLocalLLMSettings;
-  conversationHistory: ConversationEntry[] = [];
-  submitButton: ButtonComponent;
+	result: string = "";
+	pluginSettings: OLocalLLMSettings;
+	conversationHistory: ConversationEntry[] = [];
+	submitButton: ButtonComponent;
 
-  constructor(app: App, settings: OLocalLLMSettings) {
-    super(app);
-    this.pluginSettings = settings;
-  }
+	constructor(app: App, settings: OLocalLLMSettings) {
+		super(app);
+		this.pluginSettings = settings;
+	}
 
-  onOpen() {
-    const { contentEl } = this;
+	onOpen() {
+		const { contentEl } = this;
 
-    contentEl.classList.add("llm-chat-modal");
+		contentEl.classList.add("llm-chat-modal");
 
-    const chatContainer = contentEl.createDiv({ cls: "llm-chat-container" });
-    const chatHistoryEl = chatContainer.createDiv({ cls: "llm-chat-history" });
+		const chatContainer = contentEl.createDiv({ cls: "llm-chat-container" });
+		const chatHistoryEl = chatContainer.createDiv({ cls: "llm-chat-history" });
 
-    chatHistoryEl.classList.add("chatHistoryElStyle");
+		chatHistoryEl.classList.add("chatHistoryElStyle");
 
-    // Display existing conversation history (if any)
-    chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
+		// Display existing conversation history (if any)
+		chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
 
-    const personasInfoEl = document.createElement('div');
-    personasInfoEl.classList.add("personasInfoStyle");
-    personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
-    chatHistoryEl.appendChild(personasInfoEl);
+		const personasInfoEl = document.createElement('div');
+		personasInfoEl.classList.add("personasInfoStyle");
+		personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
+		chatHistoryEl.appendChild(personasInfoEl);
 
-    // Update this part to use conversationHistory
-    this.conversationHistory.forEach((entry) => {
-      const userMessageEl = chatHistoryEl.createEl("p", { text: "You: " + entry.prompt });
-      userMessageEl.classList.add('llmChatMessageStyleUser');
-      const aiMessageEl = chatHistoryEl.createEl("p", { text: "LLM Helper: " + entry.response });
-      aiMessageEl.classList.add('llmChatMessageStyleAI');
-    });
+		// Update this part to use conversationHistory
+		this.conversationHistory.forEach((entry) => {
+			const userMessageEl = chatHistoryEl.createEl("p", { text: "You: " + entry.prompt });
+			userMessageEl.classList.add('llmChatMessageStyleUser');
+			const aiMessageEl = chatHistoryEl.createEl("p", { text: "LLM Helper: " + entry.response });
+			aiMessageEl.classList.add('llmChatMessageStyleAI');
+		});
 
-    const inputContainer = contentEl.createDiv({ cls: "llm-chat-input-container" });
+		const inputContainer = contentEl.createDiv({ cls: "llm-chat-input-container" });
 
-    const inputRow = inputContainer.createDiv({ cls: "llm-chat-input-row" });
+		const inputRow = inputContainer.createDiv({ cls: "llm-chat-input-row" });
 
-    const askLabel = inputRow.createSpan({ text: "Ask:", cls: "llm-chat-ask-label" });
+		const askLabel = inputRow.createSpan({ text: "Ask:", cls: "llm-chat-ask-label" });
 
-    const textInput = new TextComponent(inputRow)
-      .setPlaceholder("Type your question here...")
-      .onChange((value) => {
-        this.result = value;
-        this.updateSubmitButtonState();
-      });
-    textInput.inputEl.classList.add("llm-chat-input");
-    textInput.inputEl.addEventListener('keypress', (event) => {
-      if (event.key === 'Enter' && this.result.trim() !== "") {
-        event.preventDefault();
-        this.handleSubmit();
-      }
-    });
+		const textInput = new TextComponent(inputRow)
+			.setPlaceholder("Type your question here...")
+			.onChange((value) => {
+				this.result = value;
+				this.updateSubmitButtonState();
+			});
+		textInput.inputEl.classList.add("llm-chat-input");
+		textInput.inputEl.addEventListener('keypress', (event) => {
+			if (event.key === 'Enter' && this.result.trim() !== "") {
+				event.preventDefault();
+				this.handleSubmit();
+			}
+		});
 
-    this.submitButton = new ButtonComponent(inputRow)
-      .setButtonText("Submit")
-      .setCta()
-      .onClick(() => this.handleSubmit());
-    this.submitButton.buttonEl.classList.add("llm-chat-submit-button");
+		this.submitButton = new ButtonComponent(inputRow)
+			.setButtonText("Submit")
+			.setCta()
+			.onClick(() => this.handleSubmit());
+		this.submitButton.buttonEl.classList.add("llm-chat-submit-button");
 
-    // Initially disable the submit button
-    this.updateSubmitButtonState();
+		// Initially disable the submit button
+		this.updateSubmitButtonState();
 
-    // Scroll to bottom initially
-    this.scrollToBottom();
-  }
-  
-  onClose() {
-    let { contentEl } = this;
-    contentEl.empty();
-  }
+		// Scroll to bottom initially
+		this.scrollToBottom();
+	}
 
-  updateSubmitButtonState() {
-    if (this.result.trim() === "") {
-      this.submitButton.setDisabled(true);
-      this.submitButton.buttonEl.classList.add("llm-chat-submit-button-disabled");
-    } else {
-      this.submitButton.setDisabled(false);
-      this.submitButton.buttonEl.classList.remove("llm-chat-submit-button-disabled");
-    }
-  }
+	onClose() {
+		let { contentEl } = this;
+		contentEl.empty();
+	}
 
-  // New method to handle submission
-  async handleSubmit() {
-    if (this.result.trim() === "") {
-      return;
-    }
-    
-    const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
-    if (chatHistoryEl) {
-      await processChatInput(
-        this.result,
-        this.pluginSettings.personas,
-        this.contentEl,
-        chatHistoryEl as HTMLElement,
-        this.conversationHistory,
-        this.pluginSettings
-      );
-      this.result = ""; // Clear user input field
-      const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
-      if (textInputEl) {
-        textInputEl.value = "";
-      }
-      this.updateSubmitButtonState(); // Disable the button after submission
-      this.scrollToBottom();
-    }
-  }
+	updateSubmitButtonState() {
+		if (this.result.trim() === "") {
+			this.submitButton.setDisabled(true);
+			this.submitButton.buttonEl.classList.add("llm-chat-submit-button-disabled");
+		} else {
+			this.submitButton.setDisabled(false);
+			this.submitButton.buttonEl.classList.remove("llm-chat-submit-button-disabled");
+		}
+	}
 
-  scrollToBottom() {
-    const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
-    if (chatHistoryEl) {
-      chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
-    }
-  }
+	// New method to handle submission
+	async handleSubmit() {
+		if (this.result.trim() === "") {
+			return;
+		}
+
+		const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
+		if (chatHistoryEl) {
+			await processChatInput(
+				this.result,
+				this.pluginSettings.personas,
+				this.contentEl,
+				chatHistoryEl as HTMLElement,
+				this.conversationHistory,
+				this.pluginSettings
+			);
+			this.result = ""; // Clear user input field
+			const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
+			if (textInputEl) {
+				textInputEl.value = "";
+			}
+			this.updateSubmitButtonState(); // Disable the button after submission
+			this.scrollToBottom();
+		}
+	}
+
+	scrollToBottom() {
+		const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
+		if (chatHistoryEl) {
+			chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+		}
+	}
 }
-  
+
 async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings) {
-  const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
+	const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
 
-  // Add user's question to conversation history
-  conversationHistory.push({ prompt: text, response: "" });
-  if (chatHistoryEl) {
-    const chatElement = document.createElement('div');
-    chatElement.classList.add('llmChatMessageStyleUser');
-    chatElement.innerHTML = text;
-    chatHistoryEl.appendChild(chatElement);
-  }
+	// Add user's question to conversation history
+	conversationHistory.push({ prompt: text, response: "" });
+	if (chatHistoryEl) {
+		const chatElement = document.createElement('div');
+		chatElement.classList.add('llmChatMessageStyleUser');
+		chatElement.innerHTML = text;
+		chatHistoryEl.appendChild(chatElement);
+	}
 
-  showThinkingIndicator(chatHistoryEl);
-  scrollToBottom(chatContainer);
+	showThinkingIndicator(chatHistoryEl);
+	scrollToBottom(chatContainer);
 
-  text = modifyPrompt(text, personas);
-  console.log(text);
-  
-  try {
-    const body = {
-      model: pluginSettings.llmModel,
-      messages: [
-        { role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
-        ...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
-          acc.push({ role: "user", content: entry.prompt });
-          acc.push({ role: "assistant", content: entry.response });
-          return acc;
-        }, [] as { role: string; content: string }[]),
-        { role: "user", content: text },
-      ],
-      temperature: 0.7,
-      max_tokens: -1,
-      stream: false, // Set to false for chat window
-    };
+	text = modifyPrompt(text, personas);
+	console.log(text);
 
-    const response = await requestUrl({
-      url: `${pluginSettings.serverAddress}/v1/chat/completions`,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  
-    const statusCode = response.status;
-  
-    if (statusCode >= 200 && statusCode < 300) {
-      const data = await response.json;
-      const llmResponse = data.choices[0].message.content;
-  
-      // Convert LLM response to HTML
-      let formattedResponse = llmResponse;
-      //conver to html - bold
-      formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
-      formattedResponse = formattedResponse.replace(/_(.*?)_/g, "<i>$1</i>");
-      formattedResponse = formattedResponse.replace(/\n\n/g, "<br><br>");
+	try {
+		const body = {
+			model: pluginSettings.llmModel,
+			messages: [
+				{ role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+				...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
+					acc.push({ role: "user", content: entry.prompt });
+					acc.push({ role: "assistant", content: entry.response });
+					return acc;
+				}, [] as { role: string; content: string }[]),
+				{ role: "user", content: text },
+			],
+			temperature: pluginSettings.temperature,
+			max_tokens: pluginSettings.maxTokens,
+			stream: false, // Set to false for chat window
+		};
 
-      console.log("formattedResponse", formattedResponse);
-    
-      // Create response container
-      const responseContainer = document.createElement('div');
-      responseContainer.classList.add('llmChatMessageStyleAI');
+		const response = await requestUrl({
+			url: `${pluginSettings.serverAddress}/v1/chat/completions`,
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(body),
+		});
 
-      // Create response text element
-      const responseTextEl = document.createElement('div');
-      responseTextEl.innerHTML = formattedResponse;
-      responseContainer.appendChild(responseTextEl);
+		const statusCode = response.status;
 
-      // Create copy button
-      const copyButton = document.createElement('button');
-      copyButton.classList.add('copy-button');
-      setIcon(copyButton, 'copy');
-      copyButton.addEventListener('click', () => {
-        navigator.clipboard.writeText(llmResponse).then(() => {
-          new Notice('Copied to clipboard!');
-        });
-      });
-      responseContainer.appendChild(copyButton);
+		if (statusCode >= 200 && statusCode < 300) {
+			const data = await response.json;
+			const llmResponse = data.choices[0].message.content;
 
-      // Add response container to chat history
-      chatHistoryEl.appendChild(responseContainer);
+			// Convert LLM response to HTML
+			let formattedResponse = llmResponse;
+			//conver to html - bold
+			formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+			formattedResponse = formattedResponse.replace(/_(.*?)_/g, "<i>$1</i>");
+			formattedResponse = formattedResponse.replace(/\n\n/g, "<br><br>");
 
-      // Add LLM response to conversation history with Markdown
-      updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
+			console.log("formattedResponse", formattedResponse);
 
-      hideThinkingIndicator(chatHistoryEl);
+			// Create response container
+			const responseContainer = document.createElement('div');
+			responseContainer.classList.add('llmChatMessageStyleAI');
 
-      // Scroll to bottom after response is generated
-      scrollToBottom(chatContainer);
+			// Create response text element
+			const responseTextEl = document.createElement('div');
+			responseTextEl.innerHTML = formattedResponse;
+			responseContainer.appendChild(responseTextEl);
 
-    } else {
-      throw new Error(
-        "Error getting response from LLM server: " + response.text
-      );
-    }
-  } catch (error) {
-    console.error("Error during request:", error);
-    new Notice(
-      "Error communicating with LLM Helper: Check plugin console for details!"
-    );
-    hideThinkingIndicator(chatHistoryEl);
-  }
-    
+			// Create copy button
+			const copyButton = document.createElement('button');
+			copyButton.classList.add('copy-button');
+			setIcon(copyButton, 'copy');
+			copyButton.addEventListener('click', () => {
+				navigator.clipboard.writeText(llmResponse).then(() => {
+					new Notice('Copied to clipboard!');
+				});
+			});
+			responseContainer.appendChild(copyButton);
+
+			// Add response container to chat history
+			chatHistoryEl.appendChild(responseContainer);
+
+			// Add LLM response to conversation history with Markdown
+			updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
+
+			hideThinkingIndicator(chatHistoryEl);
+
+			// Scroll to bottom after response is generated
+			scrollToBottom(chatContainer);
+
+		} else {
+			throw new Error(
+				"Error getting response from LLM server: " + response.text
+			);
+		}
+	} catch (error) {
+		console.error("Error during request:", error);
+		new Notice(
+			"Error communicating with LLM Helper: Check plugin console for details!"
+		);
+		hideThinkingIndicator(chatHistoryEl);
+	}
+
 }
-  
+
 function showThinkingIndicator(chatHistoryEl: HTMLElement) {
-  const thinkingIndicatorEl = document.createElement('div');
-  thinkingIndicatorEl.classList.add('thinking-indicator');
-  const tStr = ["Calculating the last digit of pi... just kidding",
-    "Quantum entanglement engaged... thinking deeply", 
-    "Reticulating splines... stand by", 
-    "Consulting the Oracle",
-    "Entangling qubits... preparing for a quantum leap",
-    "Processing... yada yada yada... almost done",
-    "Processing... We're approaching singularity",
-    "Serenity now! Patience while we process",
-    "Calculating the probability of George getting a date",
-    "Asking my man Art Vandalay"];
-  // pick a random index between 0 and size of string array above
-  const randomIndex = Math.floor(Math.random() * tStr.length);
-  thinkingIndicatorEl.innerHTML = tStr[randomIndex] + '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span>'; // Inline HTML
-  
-  chatHistoryEl.appendChild(thinkingIndicatorEl);
+	const thinkingIndicatorEl = document.createElement('div');
+	thinkingIndicatorEl.classList.add('thinking-indicator');
+	const tStr = ["Calculating the last digit of pi... just kidding",
+		"Quantum entanglement engaged... thinking deeply",
+		"Reticulating splines... stand by",
+		"Consulting the Oracle",
+		"Entangling qubits... preparing for a quantum leap",
+		"Processing... yada yada yada... almost done",
+		"Processing... We're approaching singularity",
+		"Serenity now! Patience while we process",
+		"Calculating the probability of George getting a date",
+		"Asking my man Art Vandalay"];
+	// pick a random index between 0 and size of string array above
+	const randomIndex = Math.floor(Math.random() * tStr.length);
+	thinkingIndicatorEl.innerHTML = tStr[randomIndex] + '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span>'; // Inline HTML
+
+	chatHistoryEl.appendChild(thinkingIndicatorEl);
 }
-  
+
 function hideThinkingIndicator(chatHistoryEl: HTMLElement) {
-  const thinkingIndicatorEl = chatHistoryEl.querySelector('.thinking-indicator');
-  if (thinkingIndicatorEl) {
-    chatHistoryEl.removeChild(thinkingIndicatorEl);
-  }
+	const thinkingIndicatorEl = chatHistoryEl.querySelector('.thinking-indicator');
+	if (thinkingIndicatorEl) {
+		chatHistoryEl.removeChild(thinkingIndicatorEl);
+	}
 }
 
 function scrollToBottom(el: HTMLElement) {
-  const chatHistoryEl = el.querySelector('.llm-chat-history');
-  if (chatHistoryEl) {
-    chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
-  }
+	const chatHistoryEl = el.querySelector('.llm-chat-history');
+	if (chatHistoryEl) {
+		chatHistoryEl.scrollTop = chatHistoryEl.scrollHeight;
+	}
 }
 
 function updateConversationHistory(prompt: string, response: string, conversationHistory: ConversationEntry[], maxConvHistoryLength: number) {
-  conversationHistory.push({ prompt, response });
-  
-  // Limit history length to maxConvHistoryLength
-  if (conversationHistory.length > maxConvHistoryLength) {
-    conversationHistory.shift();
-  }
+	conversationHistory.push({ prompt, response });
+
+	// Limit history length to maxConvHistoryLength
+	if (conversationHistory.length > maxConvHistoryLength) {
+		conversationHistory.shift();
+	}
 }
 
 
@@ -1216,75 +1287,75 @@ function updateConversationHistory(prompt: string, response: string, conversatio
 //TODO: kill switch
 
 async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
-    if (!plugin.settings.braveSearchApiKey) {
-        new Notice("Please set your Brave Search API key in settings");
-        return;
-    }
+	if (!plugin.settings.braveSearchApiKey) {
+		new Notice("Please set your Brave Search API key in settings");
+		return;
+	}
 
-    new Notice("Searching the web...");
-    
-    try {
-        const response = await requestUrl({
-            url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
-            method: "GET",
-            headers: {
-                "Accept": "application/json",
-                "Accept-Encoding": "gzip",
-                "X-Subscription-Token": plugin.settings.braveSearchApiKey,
-            }
-        });
+	new Notice("Searching the web...");
 
-        if (response.status !== 200) {
-            throw new Error("Search failed: " + response.status);
-        }
+	try {
+		const response = await requestUrl({
+			url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
+			method: "GET",
+			headers: {
+				"Accept": "application/json",
+				"Accept-Encoding": "gzip",
+				"X-Subscription-Token": plugin.settings.braveSearchApiKey,
+			}
+		});
 
-        const searchResults = response.json.web.results;
-        const context = searchResults.map((result: any) => {
-            let snippets = result.extra_snippets ? 
-                '\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
-            return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
-        }).join('');
+		if (response.status !== 200) {
+			throw new Error("Search failed: " + response.status);
+		}
 
-        processText(
-            `Based on these comprehensive search results about "${query}":\n\n${context}`,
-            "You are a helpful assistant. Analyze these detailed search results and provide a thorough, well-structured response. Include relevant source citations and consider multiple perspectives if available.",
-            plugin
-        );
+		const searchResults = response.json.web.results;
+		const context = searchResults.map((result: any) => {
+			let snippets = result.extra_snippets ?
+				'\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
+			return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
+		}).join('');
 
-    } catch (error) {
-        console.error("Web search error:", error);
-        new Notice("Web search failed. Check console for details.");
-    }
+		processText(
+			`Based on these comprehensive search results about "${query}":\n\n${context}`,
+			"You are a helpful assistant. Analyze these detailed search results and provide a thorough, well-structured response. Include relevant source citations and consider multiple perspectives if available.",
+			plugin
+		);
+
+	} catch (error) {
+		console.error("Web search error:", error);
+		new Notice("Web search failed. Check console for details.");
+	}
 }
 
 async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
-    try {
-        const response = await requestUrl({
-            url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
-            method: "GET",
-            headers: {
-                "Accept": "application/json",
-                "Accept-Encoding": "gzip",
-                "X-Subscription-Token": plugin.settings.braveSearchApiKey,
-            }
-        });
+	try {
+		const response = await requestUrl({
+			url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
+			method: "GET",
+			headers: {
+				"Accept": "application/json",
+				"Accept-Encoding": "gzip",
+				"X-Subscription-Token": plugin.settings.braveSearchApiKey,
+			}
+		});
 
-        if (response.status !== 200) {
-            throw new Error("News search failed: " + response.status);
-        }
+		if (response.status !== 200) {
+			throw new Error("News search failed: " + response.status);
+		}
 
-        const newsResults = response.json.results;
-        const context = newsResults.map((result: any) => 
-            `${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
-        ).join('');
+		const newsResults = response.json.results;
+		const context = newsResults.map((result: any) =>
+			`${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
+		).join('');
 
-        processText(
-            `Based on these news results about "${query}":\n\n${context}`,
-            "Analyze these news results and provide a comprehensive summary with key points and timeline. Include source citations.",
-            plugin
-        );
-    } catch (error) {
-        console.error("News search error:", error);
-        new Notice("News search failed. Check console for details.");
-    }
+		processText(
+			`Based on these news results about "${query}":\n\n${context}`,
+			"Analyze these news results and provide a comprehensive summary with key points and timeline. Include source citations.",
+			plugin
+		);
+	} catch (error) {
+		console.error("News search error:", error);
+		new Notice("News search failed. Check console for details.");
+	}
 }

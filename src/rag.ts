@@ -1,24 +1,24 @@
 import { Document } from 'langchain/document';
 import { MemoryVectorStore } from 'langchain/vectorstores/memory';
 import { TFile, Vault, Plugin } from 'obsidian';
-import { LocalEmbeddings } from './localEmbeddings';
+import { OllamaEmbeddings } from './ollamaEmbeddings';
+import { OpenAIEmbeddings } from './openAIEmbeddings';
 import { Ollama } from "@langchain/ollama";
-import { OpenAI, OpenAIEmbeddings } from "@langchain/openai";
+import { OpenAI } from "@langchain/openai";
 import { createRetrievalChain } from "langchain/chains/retrieval";
 import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
 import { PromptTemplate } from "@langchain/core/prompts";
-import { OLocalLLMSettings } from './main';
+import { OLocalLLMSettings } from '../main';
 
 const CHUNK_SIZE = 1000;
 
 export class RAGManager {
 	private vectorStore: MemoryVectorStore;
-	private embeddings: LocalEmbeddings | OpenAIEmbeddings;
+	private embeddings: OllamaEmbeddings | OpenAIEmbeddings;
 	private indexedFiles: string[] = [];
 	private provider: string;
 
 	constructor(
-		private plugin: Plugin,
 		private vault: Vault,
 		private settings: OLocalLLMSettings
 	) {
@@ -26,14 +26,8 @@ export class RAGManager {
 
 		// Initialize embeddings based on provider
 		this.embeddings = this.provider === 'ollama'
-			? new LocalEmbeddings(this.settings.serverAddress, this.settings.embeddingModelName)
-			: new OpenAIEmbeddings({
-				openAIApiKey: this.settings.openAIApiKey || 'lm-studio',
-				modelName: this.settings.embeddingModelName,
-				configuration: {
-					baseURL: `${this.settings.serverAddress}/v1`,
-				},
-			});
+			? new OllamaEmbeddings(this.settings.serverAddress, this.settings.embeddingModelName)
+			: new OpenAIEmbeddings(this.settings.openAIApiKey, this.settings.embeddingModelName, this.settings.serverAddress);
 
 		this.vectorStore = new MemoryVectorStore(this.embeddings);
 	}

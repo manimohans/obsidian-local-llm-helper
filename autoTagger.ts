@@ -34,8 +34,8 @@ async function generateTags(text: string, settings: OLocalLLMSettings): Promise<
             { role: "system", content: "You are a helpful assistant that generates relevant hashtags." },
             { role: "user", content: `${prompt}\n\n${text}` }
         ],
-        temperature: 0.7,
-        max_tokens: 100
+        temperature: settings.temperature,
+        max_tokens: settings.maxTokens
     };
 
     const response = await requestUrl({

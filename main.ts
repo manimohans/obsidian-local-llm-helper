@@ -14,11 +14,11 @@ import {
 	TextComponent,
 	ButtonComponent,
 } from "obsidian";
-import { generateAndAppendTags } from "./autoTagger";
-import { UpdateNoticeModal } from "./updateNoticeModal";
-import { RAGManager } from './rag';
-import { BacklinkGenerator } from './backlinkGenerator';
-import { RAGChatModal } from './ragChatModal';
+import { generateAndAppendTags } from "./src/autoTagger";
+import { UpdateNoticeModal } from "./src/updateNoticeModal";
+import { RAGManager } from './src/rag';
+import { BacklinkGenerator } from './src/backlinkGenerator';
+import { RAGChatModal } from './src/ragChatModal';
 
 // Remember to rename these classes and interfaces!
 
@@ -106,7 +106,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		await this.loadSettings();
 		this.checkForUpdates();
 		// Initialize RAGManager
-		this.ragManager = new RAGManager(this, this.app.vault, this.settings);
+		this.ragManager = new RAGManager(this.app.vault, this.settings);
 
 		// Initialize BacklinkGenerator
 		this.backlinkGenerator = new BacklinkGenerator(this.ragManager, this.app.vault);

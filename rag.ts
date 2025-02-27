@@ -3,6 +3,7 @@ import { MemoryVectorStore } from 'langchain/vectorstores/memory';
 import { TFile, Vault, Plugin } from 'obsidian';
 import { LocalEmbeddings } from './localEmbeddings';
 import { Ollama } from "@langchain/ollama";
+import { OpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { createRetrievalChain } from "langchain/chains/retrieval";
 import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
 import { PromptTemplate } from "@langchain/core/prompts";
@@ -12,73 +13,75 @@ const CHUNK_SIZE = 1000;
 
 export class RAGManager {
     private vectorStore: MemoryVectorStore;
-    private embeddings: LocalEmbeddings;
+    private embeddings: LocalEmbeddings | OpenAIEmbeddings;
     private indexedFiles: string[] = [];
+    private provider: string;
 
     constructor(
-        private plugin: Plugin, 
-        private vault: Vault, 
+        private plugin: Plugin,
+        private vault: Vault,
         private settings: OLocalLLMSettings
     ) {
-        this.embeddings = new LocalEmbeddings(this.settings.serverAddress, this.settings.embeddingModelName);
+        this.provider = this.settings.providerType || 'ollama';
+        
+        // Initialize embeddings based on provider
+        this.embeddings = this.provider === 'ollama' 
+            ? new LocalEmbeddings(this.settings.serverAddress, this.settings.embeddingModelName)
+            : new OpenAIEmbeddings({
+                openAIApiKey: this.settings.openAIApiKey || 'lm-studio',
+                modelName: this.settings.embeddingModelName,
+                configuration: {
+                    baseURL: `${this.settings.serverAddress}/v1`,
+                },
+            });
+
         this.vectorStore = new MemoryVectorStore(this.embeddings);
     }
 
     async getRAGResponse(query: string): Promise<{ response: string, sources: string[] }> {
         try {
-            // First, let's verify we have documents in the store
             const docs = await this.vectorStore.similaritySearch(query, 4);
-            console.log("Retrieved docs:", docs); // Debug log
+            if (docs.length === 0) throw new Error("No relevant documents found");
 
-            if (docs.length === 0) {
-                throw new Error("No relevant documents found in vector store");
-            }
-
-            const llm = new Ollama({
-                baseUrl: this.settings.serverAddress,
-                model: this.settings.llmModel,
-                temperature: 0.7,
-            });
+            // Initialize LLM based on provider
+            const llm = this.provider === 'ollama' 
+                ? new Ollama({
+                    baseUrl: this.settings.serverAddress,
+                    model: this.settings.llmModel,
+                    temperature: this.settings.temperature,
+                  })
+                : new OpenAI({
+                    openAIApiKey: this.settings.openAIApiKey || 'lm-studio',
+                    modelName: this.settings.llmModel,
+                    temperature: this.settings.temperature,
+                    configuration: {
+						baseURL: `${this.settings.serverAddress}/v1`,
+                    },
+                });
 
             const promptTemplate = PromptTemplate.fromTemplate(
-                `Answer the following question based on the provided context.
-
-Context: {context}
-Question: {input}
-
-Answer:`
+                `Answer the following question based on the context:\n\nContext: {context}\nQuestion: {input}\nAnswer:`
             );
 
-            const documentChain = await createStuffDocumentsChain({
-                llm,
-                prompt: promptTemplate,
-            });
-
+            const documentChain = await createStuffDocumentsChain({ llm, prompt: promptTemplate });
             const retrievalChain = await createRetrievalChain({
                 combineDocsChain: documentChain,
                 retriever: this.vectorStore.asRetriever(4),
             });
 
             const result = await retrievalChain.invoke({
-                input: query,
-            });
-
-            const sources = [...new Set(result.context.map(
-                (doc: Document) => doc.metadata.source
-            ))];
-            console.log(result);
+				input: query,
+				// Add empty chat_history if needed
+				chat_history: [] 
+			});
+            const sources = [...new Set(result.context.map((doc: Document) => doc.metadata.source))];
 
             return {
                 response: result.answer as string,
                 sources: sources
             };
-
         } catch (error) {
-            console.error("Detailed error in RAG response:", {
-                error,
-                errorMessage: error.message,
-                errorStack: error.stack
-            });
+            console.error("RAG Error:", error);
             throw error;
         }
     }

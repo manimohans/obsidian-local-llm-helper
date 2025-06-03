@@ -5,9 +5,11 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 ## Core Features
 
 #### Local LLM Integration:
-* Compatible with OpenAI-like Servers: Works with local LLM servers like Ollama and LM Studio, providing privacy and offline flexibility.
-* Model Selection: Users can specify the LLM model to use, tailoring the experience to their needs and hardware.
-* Remember chat history up to 3 previous prompts and responses.
+* **Multi-Provider Support**: Works with Ollama, OpenAI, and LM Studio (v2.2.0)
+* **Provider Switching**: Easy switching between providers in settings (v2.2.0)
+* **Model Selection**: Users can specify the LLM model to use, tailoring the experience to their needs and hardware
+* **Temperature & Max Tokens**: Configurable generation parameters (v2.2.0)
+* Remember chat history up to 3 previous prompts and responses
 #### Text Processing Commands:
 * Summarization: Condenses selected text while maintaining essential information and markdown formatting.
 * Professional Tone Adjustment: Rewrites selected text to sound more formal and polished.
@@ -45,6 +47,14 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 
 
 ## Release notes
+v2.2.0
+* **Multi-Provider Support**: Added support for OpenAI and LM Studio alongside Ollama
+* **Provider Switching**: Easy provider selection in settings (Ollama/OpenAI/LM Studio)
+* **Enhanced Configuration**: Temperature and max tokens are now user-configurable
+* **Code Refactoring**: Improved project structure with files moved to src/ directory
+* **Bug Fix**: Fixed server URL tooltip inconsistency
+* **Security Update**: Updated axios to fix security vulnerability
+
 v1.1.3
 * Chat history is now stored up to 3 previous prompts and responses.
 * Response formatting: Prepend/Append LLM responses.

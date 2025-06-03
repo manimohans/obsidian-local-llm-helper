@@ -520,7 +520,7 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Server address")
+			.setName("Server URL")
 			.setDesc("Full server URL (including protocol and port if needed). E.g., http://localhost:1234 or https://api.example.com")
 			.addText((text) =>
 				text

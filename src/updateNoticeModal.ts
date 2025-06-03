@@ -10,13 +10,22 @@ export class UpdateNoticeModal extends Modal {
 		contentEl.createEl("h2", { text: `Local LLM Helper updated to v${this.version}` });
 
 		const changelogMd = `
-## What's New
-### Major Update ${this.version}
-- Chat with your notes (RAG) - BETA (Improvements)
-- Generate backlinks - BETA (Improvements)
-- Index notes - BETA (Improvements)
-- Web Search - BETA
-- News Search - BETA
+## What's New in v${this.version}
+
+### 🚀 New Features
+- **OpenAI/LM Studio Support**: Now supports OpenAI-compatible providers alongside Ollama
+- **Provider Switching**: Easy switching between Ollama and OpenAI providers in settings
+- **Enhanced Configuration**: Temperature and max tokens are now user-configurable
+
+### 🔧 Improvements
+- **Code Organization**: Refactored codebase with better file structure (moved to src/)
+- **Fixed Tooltip Inconsistency**: Server URL field now has consistent naming
+- **Security Update**: Updated axios to fix security vulnerability
+
+### 🤖 Provider Options
+- Ollama (default)
+- OpenAI 
+- LM Studio (local OpenAI-compatible)
 
 [Full Changelog](https://github.com/manimohans/obsidian-local-llm-helper/releases)
         `;

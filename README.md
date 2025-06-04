@@ -47,6 +47,14 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 
 
 ## Release notes
+v2.2.1
+* **Critical Bug Fix**: Fixed re-embedding issue that caused embeddings to regenerate on every app restart
+* **Proper Persistent Storage**: Embeddings now persist correctly across Obsidian restarts without data conflicts
+* **Storage Diagnostics**: Added new diagnostic command and settings button to check embedding storage status
+* **User Notifications**: Shows embedding count and storage information on startup
+* **Enhanced Error Handling**: Improved Ollama API integration with better error messages
+* **Settings Improvements**: Indexed file count now updates properly in settings panel
+
 v2.2.0
 * **Multi-Provider Support**: Added support for OpenAI and LM Studio alongside Ollama
 * **Provider Switching**: Easy provider selection in settings (Ollama/OpenAI/LM Studio)

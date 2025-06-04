@@ -12,20 +12,20 @@ export class UpdateNoticeModal extends Modal {
 		const changelogMd = `
 ## What's New in v${this.version}
 
+### 🔧 Major Bug Fixes
+- **Fixed Re-embedding Issue**: Embeddings no longer re-generate on every app restart
+- **Proper Persistent Storage**: Embeddings now persist correctly across Obsidian restarts
+- **Data Separation**: Plugin settings and embeddings are now stored separately to prevent conflicts
+
 ### 🚀 New Features
-- **OpenAI/LM Studio Support**: Now supports OpenAI-compatible providers alongside Ollama
-- **Provider Switching**: Easy switching between Ollama and OpenAI providers in settings
-- **Enhanced Configuration**: Temperature and max tokens are now user-configurable
+- **Storage Diagnostics**: New command and settings button to check embedding storage status
+- **User Notifications**: Shows embedding count and storage info on startup
+- **Enhanced Logging**: Comprehensive console logging with emojis for better debugging
 
 ### 🔧 Improvements
-- **Code Organization**: Refactored codebase with better file structure (moved to src/)
-- **Fixed Tooltip Inconsistency**: Server URL field now has consistent naming
-- **Security Update**: Updated axios to fix security vulnerability
-
-### 🤖 Provider Options
-- Ollama (default)
-- OpenAI 
-- LM Studio (local OpenAI-compatible)
+- **Better Error Handling**: Improved Ollama API integration with proper error messages
+- **Default Settings**: Updated to use Ollama port 11434 and mxbai-embed-large model
+- **Settings UI**: Indexed file count now updates properly in settings panel
 
 [Full Changelog](https://github.com/manimohans/obsidian-local-llm-helper/releases)
         `;

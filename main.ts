@@ -48,7 +48,7 @@ interface ConversationEntry {
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
-	serverAddress: "http://localhost:1234",
+	serverAddress: "http://localhost:11434",
 	llmModel: "llama3",
 	maxTokens: 1024,
 	temperature: 0.7,
@@ -62,7 +62,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	responseFormatPrepend: "``` LLM Helper - generated response \n\n",
 	responseFormatAppend: "\n\n```",
 	lastVersion: "0.0.0",
-	embeddingModelName: "nomic-embed-text",
+	embeddingModelName: "mxbai-embed-large",
 	braveSearchApiKey: "",
 	openAIApiKey: "lm-studio"
 };
@@ -103,10 +103,30 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	async onload() {
+		console.log('🔌 LLM Helper: Plugin loading...');
 		await this.loadSettings();
+		console.log('⚙️ LLM Helper: Settings loaded:', {
+			provider: this.settings.providerType,
+			server: this.settings.serverAddress,
+			embeddingModel: this.settings.embeddingModelName,
+			llmModel: this.settings.llmModel
+		});
 		this.checkForUpdates();
+		// Validate server configuration
+		this.validateServerConfiguration();
+
+		console.log('🧠 LLM Helper: Initializing RAGManager...');
 		// Initialize RAGManager
-		this.ragManager = new RAGManager(this.app.vault, this.settings);
+		this.ragManager = new RAGManager(this.app.vault, this.settings, this);
+		
+		// Initialize RAGManager and show user notification about loaded data
+		await this.ragManager.initialize();
+		
+		// Show user-friendly notification about loaded embeddings after a short delay
+		// This ensures all UI elements are ready
+		setTimeout(() => {
+			this.showStorageNotification();
+		}, 500);
 
 		// Initialize BacklinkGenerator
 		this.backlinkGenerator = new BacklinkGenerator(this.ragManager, this.app.vault);
@@ -116,6 +136,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: 'generate-rag-backlinks',
 			name: 'Generate RAG Backlinks (BETA)',
 			callback: this.handleGenerateBacklinks.bind(this),
+		});
+
+		// Add diagnostic command
+		this.addCommand({
+			id: 'rag-diagnostics',
+			name: 'RAG Storage Diagnostics',
+			callback: this.handleDiagnostics.bind(this),
 		});
 
 		// Remove the automatic indexing
@@ -409,6 +436,36 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.addSettingTab(new OLLMSettingTab(this.app, this));
 	}
 
+	private validateServerConfiguration(): boolean {
+		const provider = this.settings.providerType;
+		const serverAddress = this.settings.serverAddress;
+		const embeddingModel = this.settings.embeddingModelName;
+		
+		console.log(`Validating configuration - Provider: ${provider}, Server: ${serverAddress}, Embedding Model: ${embeddingModel}`);
+		
+		if (provider === 'ollama') {
+			// Ollama typically runs on port 11434
+			if (!serverAddress.includes('11434') && !serverAddress.includes('ollama')) {
+				console.warn('Ollama provider detected but server address might be incorrect. Ollama typically runs on port 11434.');
+				return false;
+			}
+			
+			// Check for common embedding models
+			const commonOllamaModels = ['mxbai-embed-large', 'nomic-embed-text', 'all-minilm'];
+			if (!commonOllamaModels.some(model => embeddingModel.includes(model))) {
+				console.warn(`Embedding model "${embeddingModel}" might not be compatible with Ollama. Common models: ${commonOllamaModels.join(', ')}`);
+			}
+		} else if (provider === 'openai' || provider === 'lm-studio') {
+			// LM Studio typically runs on port 1234
+			if (!serverAddress.includes('1234') && !serverAddress.includes('openai')) {
+				console.warn('OpenAI/LM Studio provider detected but server address might be incorrect. LM Studio typically runs on port 1234.');
+				return false;
+			}
+		}
+		
+		return true;
+	}
+
 	private getSelectedText() {
 		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) {
@@ -436,16 +493,35 @@ export default class OLocalLLMPlugin extends Plugin {
 	onunload() { }
 
 	async loadSettings() {
+		console.log('📂 LLM Helper: Loading plugin settings...');
+		const savedData = await this.loadData();
+		console.log('💾 LLM Helper: Raw saved data:', savedData);
+		
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
-			await this.loadData()
+			savedData
 		);
+		
+		console.log('✅ LLM Helper: Final settings after merge:', {
+			provider: this.settings.providerType,
+			server: this.settings.serverAddress,
+			embeddingModel: this.settings.embeddingModelName,
+			llmModel: this.settings.llmModel,
+			hasApiKey: !!this.settings.openAIApiKey,
+			hasBraveKey: !!this.settings.braveSearchApiKey
+		});
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		
+		// Update RAG manager with new settings
+		if (this.ragManager) {
+			this.ragManager.updateSettings(this.settings);
+		}
 	}
+
 
 	async indexNotes() {
 		new Notice('Indexing notes for RAG...');
@@ -484,6 +560,56 @@ export default class OLocalLLMPlugin extends Plugin {
 			new Notice(`Generated ${backlinks.length} backlinks`);
 		} else {
 			new Notice('No relevant backlinks found');
+		}
+	}
+
+	async handleDiagnostics() {
+		console.log('🔍 === RAG STORAGE DIAGNOSTICS ===');
+		
+		// Plugin settings diagnostics
+		console.log('📋 Plugin Settings:');
+		console.log('  Provider:', this.settings.providerType);
+		console.log('  Server:', this.settings.serverAddress);
+		console.log('  Embedding Model:', this.settings.embeddingModelName);
+		console.log('  LLM Model:', this.settings.llmModel);
+		
+		// RAG storage diagnostics
+		try {
+			const stats = await this.ragManager.getStorageStats();
+			console.log('💾 RAG Storage Stats:');
+			console.log('  Total Embeddings:', stats.totalEmbeddings);
+			console.log('  Indexed Files:', stats.indexedFiles);
+			console.log('  Last Indexed:', stats.lastIndexed);
+			console.log('  Storage Used:', stats.storageUsed);
+			console.log('  Current Indexed Count:', this.ragManager.getIndexedFilesCount());
+			
+			// Show user-friendly notice
+			new Notice(`RAG Diagnostics: ${stats.totalEmbeddings} embeddings, ${stats.indexedFiles} files. Check console for details.`);
+		} catch (error) {
+			console.error('❌ Error getting storage stats:', error);
+			new Notice('Error getting storage stats. Check console for details.');
+		}
+		
+		// File system diagnostics
+		const totalMdFiles = this.app.vault.getMarkdownFiles().length;
+		console.log('📁 Vault Stats:');
+		console.log('  Total Markdown Files:', totalMdFiles);
+		console.log('  Plugin Settings Path:', `${this.manifest.dir}/data.json`);
+		console.log('  Embeddings Storage Path:', `${this.manifest.dir}/embeddings.json`);
+		
+		console.log('🔍 === END DIAGNOSTICS ===');
+	}
+
+	async showStorageNotification() {
+		try {
+			const stats = await this.ragManager.getStorageStats();
+			if (stats.totalEmbeddings > 0) {
+				new Notice(`📚 Loaded ${stats.totalEmbeddings} embeddings from ${stats.indexedFiles} files (${stats.storageUsed})`);
+			} else {
+				new Notice('📝 No previous embeddings found - ready to index notes');
+			}
+		} catch (error) {
+			console.error('Error showing storage notification:', error);
 		}
 	}
 }
@@ -699,10 +825,10 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Embedding Model Name")
-			.setDesc("Name of the model to use for embeddings")
+			.setDesc("Model for text embeddings. For Ollama: mxbai-embed-large, nomic-embed-text, all-minilm. Install with 'ollama pull <model>'")
 			.addText((text) =>
 				text
-					.setPlaceholder("llama2")
+					.setPlaceholder("mxbai-embed-large")
 					.setValue(this.plugin.settings.embeddingModelName)
 					.onChange(async (value) => {
 						this.plugin.settings.embeddingModelName = value;
@@ -784,12 +910,25 @@ class OLLMSettingTab extends PluginSettingTab {
 			.setName("Indexed Files Count")
 			.setDesc("Number of files currently indexed")
 			.addText(text => text
-				.setValue(this.plugin.ragManager.getIndexedFilesCount().toString())
+				.setValue("Loading...")
 				.setDisabled(true));
+		
+		// Update the count asynchronously after RAGManager is initialized
+		this.updateIndexedFilesCountAsync();
 
-		// Add note about memory vector store
+		// Add storage stats button
+		new Setting(containerEl)
+			.setName("Storage Diagnostics")
+			.setDesc("Check persistent storage status and statistics")
+			.addButton(button => button
+				.setButtonText("Run Diagnostics")
+				.onClick(async () => {
+					await this.plugin.handleDiagnostics();
+				}));
+
+		// Add note about persistent storage
 		containerEl.createEl("p", {
-			text: "Note: The vector store is currently held in memory and will be reset upon app reload. Future updates will implement persistent storage.",
+			text: "Note: Embeddings are now stored persistently and will be automatically loaded when Obsidian restarts. Embeddings will be rebuilt if you change the provider, model, or server settings.",
 			cls: "setting-item-description"
 		});
 	}
@@ -799,6 +938,22 @@ class OLLMSettingTab extends PluginSettingTab {
 			const textComponent = this.indexedFilesCountSetting.components[0] as TextComponent;
 			textComponent.setValue(this.plugin.ragManager.getIndexedFilesCount().toString());
 		}
+	}
+
+	async updateIndexedFilesCountAsync() {
+		// Wait for RAGManager to be fully initialized
+		const checkAndUpdate = () => {
+			if (this.plugin.ragManager && this.plugin.ragManager.isInitialized()) {
+				this.updateIndexedFilesCount();
+				console.log('📊 Settings: Updated indexed files count to', this.plugin.ragManager.getIndexedFilesCount());
+			} else {
+				// Check again in 100ms
+				setTimeout(checkAndUpdate, 100);
+			}
+		};
+		
+		// Start checking after a short delay
+		setTimeout(checkAndUpdate, 50);
 	}
 }
 

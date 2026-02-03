@@ -135,14 +135,14 @@ export default class OLocalLLMPlugin extends Plugin {
 		// Add command for RAG Backlinks
 		this.addCommand({
 			id: 'generate-rag-backlinks',
-			name: 'Generate RAG Backlinks (BETA)',
+			name: 'Notes: Generate backlinks',
 			callback: this.handleGenerateBacklinks.bind(this),
 		});
 
 		// Add diagnostic command
 		this.addCommand({
 			id: 'rag-diagnostics',
-			name: 'RAG Storage Diagnostics',
+			name: 'Settings: RAG diagnostics',
 			callback: this.handleDiagnostics.bind(this),
 		});
 
@@ -150,9 +150,9 @@ export default class OLocalLLMPlugin extends Plugin {
 		// this.indexNotes();
 		this.addCommand({
 			id: 'rag-chat',
-			name: 'Chat with your notes (RAG) - BETA',
+			name: 'Chat: Notes (RAG)',
 			callback: () => {
-				new Notice("This is a beta feature. Please use with caution. Please make sure you have indexed your notes before using this feature.");
+				new Notice("Make sure you have indexed your notes before using this feature.");
 				const ragChatModal = new RAGChatModal(this.app, this.settings, this.ragManager);
 				ragChatModal.open();
 			},
@@ -160,14 +160,14 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "summarize-selected-text",
-			name: "Summarize selected text",
+			name: "Text: Summarize",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
+						"Summarize the following text concisely. Preserve markdown formatting:",
 						this
 					);
 				}
@@ -176,14 +176,14 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "makeitprof-selected-text",
-			name: "Make selected text sound professional",
+			name: "Text: Make professional",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
+						"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
 						this
 					);
 				}
@@ -192,14 +192,14 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "actionitems-selected-text",
-			name: "Generate action items from selected text",
+			name: "Text: Generate action items",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						"Generate action items based on the following text (use or numbers based on context):",
+						"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
 						this
 					);
 				}
@@ -208,7 +208,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "custom-selected-text",
-			name: "Run Custom prompt (from settings) on selected text",
+			name: "Text: Run custom prompt",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				new Notice("Custom prompt: " + this.settings.customPrompt);
@@ -225,14 +225,14 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "gentext-selected-text",
-			name: "Use SELECTED text as your prompt",
+			name: "Text: Use as prompt",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					processText(
 						selectedText,
-						"Generate response based on the following text. This is your prompt:",
+						"Respond to the following prompt:",
 						this
 					);
 				}
@@ -241,7 +241,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "edit-with-prompt",
-			name: "Edit selected text with prompt",
+			name: "Text: Edit with prompt...",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				const selectedText = this.getSelectedText();
 				if (selectedText.length === 0) {
@@ -257,7 +257,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "llm-chat",
-			name: "Chat with Local LLM Helper",
+			name: "Chat: General",
 			callback: () => {
 				const chatModal = new LLMChatModal(this.app, this.settings);
 				chatModal.open();
@@ -266,7 +266,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "llm-hashtag",
-			name: "Generate hashtags for selected text",
+			name: "Text: Generate tags",
 			callback: () => {
 				generateAndAppendTags(this.app, this.settings);
 			},
@@ -274,7 +274,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "web-search-selected-text",
-			name: "Search web for selected text",
+			name: "Web: Search",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false;
 				let selectedText = this.getSelectedText();
@@ -286,7 +286,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: "web-news-search",
-			name: "Search news (Web) for selected text",
+			name: "Web: Search news",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
@@ -295,12 +295,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			},
 		});
 
-		this.addRibbonIcon("brain-cog", "LLM Context", (event) => {
+		this.addRibbonIcon("brain-cog", "LLM Helper", (event) => {
 			const menu = new Menu();
 
+			// === Chat Section ===
 			menu.addItem((item) =>
 				item
-					.setTitle("Chat with LLM Helper")
+					.setTitle("Chat")
 					.setIcon("messages-square")
 					.onClick(() => {
 						new LLMChatModal(this.app, this.settings).open();
@@ -309,92 +310,17 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
-					.setTitle("Summarize")
-					.setIcon("sword")
-					.onClick(async () => {
-						this.isKillSwitchActive = false; // Reset kill switch state
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							processText(
-								selectedText,
-								"Summarize the following text (maintain verbs and pronoun forms, also retain the markdowns):",
-								this
-							);
-						}
+					.setTitle("Chat with notes (RAG)")
+					.setIcon("book-open")
+					.onClick(() => {
+						new Notice("Make sure you have indexed your notes before using this feature.");
+						new RAGChatModal(this.app, this.settings, this.ragManager).open();
 					})
 			);
 
-			menu.addItem((item) =>
-				item
-					.setTitle("Make it professional")
-					.setIcon("school")
-					.onClick(async () => {
-						this.isKillSwitchActive = false; // Reset kill switch state
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							processText(
-								selectedText,
-								"Make the following sound professional (maintain verbs and pronoun forms, also retain the markdowns):",
-								this
-							);
-						}
-					})
-			);
+			menu.addSeparator();
 
-			menu.addItem((item) =>
-				item
-					.setTitle("Use as prompt")
-					.setIcon("lightbulb")
-					.onClick(async () => {
-						this.isKillSwitchActive = false; // Reset kill switch state
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							processText(
-								selectedText,
-								"Generate response based on the following text. This is your prompt:",
-								this
-							);
-						}
-					})
-			);
-
-			menu.addItem((item) =>
-				item
-					.setTitle("Generate action items")
-					.setIcon("list-todo")
-					.onClick(async () => {
-						this.isKillSwitchActive = false; // Reset kill switch state
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							processText(
-								selectedText,
-								"Generate action items based on the following text (use or numbers based on context):",
-								this
-							);
-						}
-					})
-			);
-
-			menu.addItem((item) =>
-				item
-					.setTitle("Custom prompt")
-					.setIcon("pencil")
-					.onClick(async () => {
-						this.isKillSwitchActive = false; // Reset kill switch state
-						new Notice(
-							"Custom prompt: " + this.settings.customPrompt
-						);
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							processText(
-								selectedText,
-								this.settings.customPrompt,
-								this
-							);
-						}
-					})
-			);
-
+			// === Text Editing Section ===
 			menu.addItem((item) =>
 				item
 					.setTitle("Edit with prompt...")
@@ -414,14 +340,63 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
+					.setTitle("Summarize")
+					.setIcon("minimize-2")
+					.onClick(async () => {
+						this.isKillSwitchActive = false;
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processText(
+								selectedText,
+								"Summarize the following text concisely. Preserve markdown formatting:",
+								this
+							);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Make professional")
+					.setIcon("briefcase")
+					.onClick(async () => {
+						this.isKillSwitchActive = false;
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processText(
+								selectedText,
+								"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
+								this
+							);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Generate action items")
+					.setIcon("list-todo")
+					.onClick(async () => {
+						this.isKillSwitchActive = false;
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processText(
+								selectedText,
+								"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
+								this
+							);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
 					.setTitle("Generate tags")
 					.setIcon("hash")
 					.onClick(async () => {
-						new Notice(
-							"Generating hashtags"
-						);
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
+							new Notice("Generating tags...");
 							generateAndAppendTags(this.app, this.settings);
 						}
 					})
@@ -429,7 +404,45 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
-					.setTitle("Search (Web)")
+					.setTitle("Use as prompt")
+					.setIcon("lightbulb")
+					.onClick(async () => {
+						this.isKillSwitchActive = false;
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							processText(
+								selectedText,
+								"Respond to the following prompt:",
+								this
+							);
+						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Custom prompt")
+					.setIcon("pencil")
+					.onClick(async () => {
+						this.isKillSwitchActive = false;
+						let selectedText = this.getSelectedText();
+						if (selectedText.length > 0) {
+							new Notice("Running: " + this.settings.customPrompt);
+							processText(
+								selectedText,
+								this.settings.customPrompt,
+								this
+							);
+						}
+					})
+			);
+
+			menu.addSeparator();
+
+			// === Web Search Section ===
+			menu.addItem((item) =>
+				item
+					.setTitle("Web search")
 					.setIcon("globe")
 					.onClick(async () => {
 						let selectedText = this.getSelectedText();
@@ -441,7 +454,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
-					.setTitle("News Search (Web)")
+					.setTitle("News search")
 					.setIcon("newspaper")
 					.onClick(async () => {
 						let selectedText = this.getSelectedText();
@@ -451,13 +464,16 @@ export default class OLocalLLMPlugin extends Plugin {
 					})
 			);
 
+			menu.addSeparator();
+
+			// === Utility Section ===
 			menu.addItem((item) =>
 				item
-					.setTitle("Kill Switch")
-					.setIcon("x-circle")
+					.setTitle("Stop generation")
+					.setIcon("square")
 					.onClick(() => {
 						this.isKillSwitchActive = true;
-						new Notice("LLM Helper process stopped");
+						new Notice("Generation stopped");
 					})
 			);
 
@@ -660,10 +676,14 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		// Provider selection - all use OpenAI-compatible API
+		// ═══════════════════════════════════════════════════════════
+		// CONNECTION
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Connection" });
+
 		new Setting(containerEl)
-			.setName("LLM Provider")
-			.setDesc("Select your provider. All use OpenAI-compatible API format (/v1/chat/completions, /v1/embeddings).")
+			.setName("Provider")
+			.setDesc("All providers use OpenAI-compatible API format")
 			.addDropdown(dropdown =>
 				dropdown
 					.addOption('ollama', 'Ollama')
@@ -671,20 +691,19 @@ class OLLMSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.providerType)
 					.onChange(async (value: 'ollama' | 'openai') => {
 						this.plugin.settings.providerType = value;
-						// Update default URL based on provider
 						if (value === 'ollama' && this.plugin.settings.serverAddress.includes('1234')) {
 							this.plugin.settings.serverAddress = 'http://localhost:11434';
 						} else if (value === 'openai' && this.plugin.settings.serverAddress.includes('11434')) {
 							this.plugin.settings.serverAddress = 'http://localhost:1234';
 						}
 						await this.plugin.saveSettings();
-						this.display(); // Refresh settings UI
+						this.display();
 					})
 			);
 
 		new Setting(containerEl)
 			.setName("Server URL")
-			.setDesc("Ollama: http://localhost:11434 | LM Studio: http://localhost:1234 | vLLM: http://localhost:8000")
+			.setDesc("Ollama: localhost:11434 | LM Studio: localhost:1234 | vLLM: localhost:8000")
 			.addText((text) =>
 				text
 					.setPlaceholder("http://localhost:11434")
@@ -695,12 +714,31 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
+		if (this.plugin.settings.providerType === 'openai') {
+			new Setting(containerEl)
+				.setName("API Key")
+				.setDesc("Required for OpenAI. For local servers, use 'not-needed'")
+				.addText(text => text
+					.setPlaceholder("not-needed")
+					.setValue(this.plugin.settings.openAIApiKey || '')
+					.onChange((value) => {
+						this.plugin.settings.openAIApiKey = value;
+						this.debouncedSave();
+					})
+				);
+		}
+
+		// ═══════════════════════════════════════════════════════════
+		// MODELS
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Models" });
+
 		new Setting(containerEl)
-			.setName("LLM Model")
-			.setDesc("Model name for chat completions (e.g., llama3, gpt-4, mistral)")
+			.setName("Chat model")
+			.setDesc("Model for chat and text processing (e.g., llama3, gpt-4, mistral)")
 			.addText((text) =>
 				text
-					.setPlaceholder("Model name")
+					.setPlaceholder("llama3")
 					.setValue(this.plugin.settings.llmModel)
 					.onChange((value) => {
 						this.plugin.settings.llmModel = value;
@@ -709,83 +747,21 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Custom prompt")
-			.setDesc("create your own prompt - for your specific niche needs")
+			.setName("Embedding model")
+			.setDesc("Model for RAG indexing (e.g., nomic-embed-text, mxbai-embed-large)")
 			.addText((text) =>
 				text
-					.setPlaceholder(
-						"create action items from the following text:"
-					)
-					.setValue(this.plugin.settings.customPrompt)
+					.setPlaceholder("mxbai-embed-large")
+					.setValue(this.plugin.settings.embeddingModelName)
 					.onChange((value) => {
-						this.plugin.settings.customPrompt = value;
+						this.plugin.settings.embeddingModelName = value;
 						this.debouncedSave();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Streaming")
-			.setDesc(
-				"Enable to receive the response in real-time, word by word."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.stream) // Assume 'stream' exists in your settings
-					.onChange(async (value) => {
-						this.plugin.settings.stream = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Output Mode")
-			.setDesc("Choose how to handle generated text")
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption("replace", "Replace selected text")
-					.addOption("append", "Append after selected text")
-					.setValue(this.plugin.settings.outputMode)
-					.onChange(async (value) => {
-						this.plugin.settings.outputMode = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Personas")
-			.setDesc("Choose persona for your AI agent")
-			.addDropdown(dropdown => {
-				for (const key in personasDict) { // Iterate over keys directly
-					if (personasDict.hasOwnProperty(key)) {
-						dropdown.addOption(key, personasDict[key]);
-					}
-				}
-				dropdown.setValue(this.plugin.settings.personas)
-					.onChange(async (value) => {
-						this.plugin.settings.personas = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		new Setting(containerEl)
-			.setName("Max Tokens")
-			.setDesc("Max number of tokens for LLM response (generally 1-4000)")
-			.addText((text) =>
-				text
-					.setPlaceholder("1024")
-					.setValue(this.plugin.settings.maxTokens.toString())
-					.onChange((value) => {
-						const parsedValue = parseInt(value);
-						if (!isNaN(parsedValue) && parsedValue >= 0) {
-							this.plugin.settings.maxTokens = parsedValue;
-							this.debouncedSave();
-						}
-					})
-			);
-
-		new Setting(containerEl)
 			.setName("Temperature")
-			.setDesc("Increase for more randomness, decrease for more reliability")
+			.setDesc("0 = deterministic, 1 = creative")
 			.addText((text) =>
 				text
 					.setPlaceholder("0.7")
@@ -800,8 +776,45 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Max conversation history")
-			.setDesc("Maximum number of conversation history to store (0-3)")
+			.setName("Max tokens")
+			.setDesc("Maximum response length (typically 1-4000)")
+			.addText((text) =>
+				text
+					.setPlaceholder("1024")
+					.setValue(this.plugin.settings.maxTokens.toString())
+					.onChange((value) => {
+						const parsedValue = parseInt(value);
+						if (!isNaN(parsedValue) && parsedValue >= 0) {
+							this.plugin.settings.maxTokens = parsedValue;
+							this.debouncedSave();
+						}
+					})
+			);
+
+		// ═══════════════════════════════════════════════════════════
+		// CHAT
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Chat" });
+
+		new Setting(containerEl)
+			.setName("Persona")
+			.setDesc("AI personality for responses")
+			.addDropdown(dropdown => {
+				for (const key in personasDict) {
+					if (personasDict.hasOwnProperty(key)) {
+						dropdown.addOption(key, personasDict[key]);
+					}
+				}
+				dropdown.setValue(this.plugin.settings.personas)
+					.onChange(async (value) => {
+						this.plugin.settings.personas = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("Conversation history")
+			.setDesc("Number of previous messages to include (0-3)")
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption("0", "0")
@@ -815,30 +828,57 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
+		// ═══════════════════════════════════════════════════════════
+		// OUTPUT
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Output" });
 
+		new Setting(containerEl)
+			.setName("Streaming")
+			.setDesc("Show response word by word as it generates")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.stream)
+					.onChange(async (value) => {
+						this.plugin.settings.stream = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
-		//new settings for response formatting boolean default false
+		new Setting(containerEl)
+			.setName("Output mode")
+			.setDesc("How to insert generated text")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("replace", "Replace selected text")
+					.addOption("append", "Append after selected text")
+					.setValue(this.plugin.settings.outputMode)
+					.onChange(async (value) => {
+						this.plugin.settings.outputMode = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
-		const responseFormattingToggle = new Setting(containerEl)
-			.setName("Response Formatting")
-			.setDesc("Enable to format the response into a separate block")
+		new Setting(containerEl)
+			.setName("Response formatting")
+			.setDesc("Wrap response in custom text (e.g., code blocks)")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.responseFormatting)
 					.onChange(async (value) => {
 						this.plugin.settings.responseFormatting = value;
 						await this.plugin.saveSettings();
-						this.display(); // Refresh the settings tab
+						this.display();
 					})
 			);
 
 		if (this.plugin.settings.responseFormatting) {
 			new Setting(containerEl)
-				.setName("Response Format Prepend")
-				.setDesc("Text to prepend to the formatted response")
+				.setName("Prepend text")
+				.setDesc("Text before response")
 				.addText((text) =>
 					text
-						.setPlaceholder("``` LLM Helper - generated response \n\n")
+						.setPlaceholder("``` LLM Helper\n\n")
 						.setValue(this.plugin.settings.responseFormatPrepend)
 						.onChange((value) => {
 							this.plugin.settings.responseFormatPrepend = value;
@@ -847,8 +887,8 @@ class OLLMSettingTab extends PluginSettingTab {
 				);
 
 			new Setting(containerEl)
-				.setName("Response Format Append")
-				.setDesc("Text to append to the formatted response")
+				.setName("Append text")
+				.setDesc("Text after response")
 				.addText((text) =>
 					text
 						.setPlaceholder("\n\n```")
@@ -860,52 +900,34 @@ class OLLMSettingTab extends PluginSettingTab {
 				);
 		}
 
+		// ═══════════════════════════════════════════════════════════
+		// CUSTOM PROMPT
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Custom Prompt" });
+
 		new Setting(containerEl)
-			.setName("Embedding Model")
-			.setDesc("Model for RAG embeddings. Ollama: nomic-embed-text, mxbai-embed-large | OpenAI: text-embedding-ada-002")
+			.setName("Your prompt")
+			.setDesc("Used by 'Text: Run custom prompt' command")
 			.addText((text) =>
 				text
-					.setPlaceholder("mxbai-embed-large")
-					.setValue(this.plugin.settings.embeddingModelName)
+					.setPlaceholder("Create action items from the following:")
+					.setValue(this.plugin.settings.customPrompt)
 					.onChange((value) => {
-						this.plugin.settings.embeddingModelName = value;
+						this.plugin.settings.customPrompt = value;
 						this.debouncedSave();
 					})
 			);
 
-		new Setting(containerEl)
-			.setName("Brave Search API Key")
-			.setDesc("API key for Brave Search integration")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter your Brave Search API key")
-					.setValue(this.plugin.settings.braveSearchApiKey)
-					.onChange((value) => {
-						this.plugin.settings.braveSearchApiKey = value;
-						this.debouncedSave();
-					})
-			);
-
-		// Add OpenAI API Key setting (conditional)
-		if (this.plugin.settings.providerType === 'openai') {
-			new Setting(containerEl)
-				.setName("OpenAI API Key")
-				.setDesc("Required for OpenAI. For local servers (LM Studio, vLLM), leave as 'not-needed'")
-				.addText(text => text
-					.setPlaceholder("not-needed")
-					.setValue(this.plugin.settings.openAIApiKey || '')
-					.onChange((value) => {
-						this.plugin.settings.openAIApiKey = value;
-						this.debouncedSave();
-					})
-				);
-		}
+		// ═══════════════════════════════════════════════════════════
+		// NOTES INDEX (RAG)
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Notes Index (RAG)" });
 
 		new Setting(containerEl)
-			.setName("Index Notes (BETA)")
-			.setDesc("Manually index all notes in the vault")
+			.setName("Index notes")
+			.setDesc("Build searchable index of all notes in vault")
 			.addButton(button => button
-				.setButtonText("Start Indexing (BETA)")
+				.setButtonText("Start indexing")
 				.onClick(async () => {
 					button.setDisabled(true);
 					this.indexingProgressBar = containerEl.createEl("progress", {
@@ -944,30 +966,54 @@ class OLLMSettingTab extends PluginSettingTab {
 				}));
 
 		this.indexedFilesCountSetting = new Setting(containerEl)
-			.setName("Indexed Files Count")
-			.setDesc("Number of files currently indexed")
+			.setName("Indexed files")
+			.setDesc("Number of files in current index")
 			.addText(text => text
 				.setValue("Loading...")
 				.setDisabled(true));
-		
-		// Update the count asynchronously after RAGManager is initialized
+
 		this.updateIndexedFilesCountAsync();
 
-		// Add storage stats button
 		new Setting(containerEl)
-			.setName("Storage Diagnostics")
-			.setDesc("Check persistent storage status and statistics")
+			.setName("Diagnostics")
+			.setDesc("Check index storage status")
 			.addButton(button => button
-				.setButtonText("Run Diagnostics")
+				.setButtonText("Run diagnostics")
 				.onClick(async () => {
 					await this.plugin.handleDiagnostics();
 				}));
 
-		// Add note about API compatibility
-		containerEl.createEl("p", {
-			text: "Note: This plugin uses OpenAI-compatible API endpoints (/v1/chat/completions, /v1/embeddings). Works with Ollama, LM Studio, vLLM, OpenAI, and any OpenAI-compatible server.",
-			cls: "setting-item-description"
-		});
+		// ═══════════════════════════════════════════════════════════
+		// INTEGRATIONS
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Integrations" });
+
+		new Setting(containerEl)
+			.setName("Brave Search API key")
+			.setDesc("Required for web search features")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter API key")
+					.setValue(this.plugin.settings.braveSearchApiKey)
+					.onChange((value) => {
+						this.plugin.settings.braveSearchApiKey = value;
+						this.debouncedSave();
+					})
+			);
+
+		// ═══════════════════════════════════════════════════════════
+		// ABOUT
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "About" });
+
+		new Setting(containerEl)
+			.setName("Version")
+			.setDesc(`Local LLM Helper v${this.plugin.manifest.version}`)
+			.addButton(btn => btn
+				.setButtonText("View changelog")
+				.onClick(() => {
+					new UpdateNoticeModal(this.app, this.plugin.manifest.version).open();
+				}));
 	}
 
 	updateIndexedFilesCount() {
@@ -995,33 +1041,22 @@ class OLLMSettingTab extends PluginSettingTab {
 }
 
 export function modifyPrompt(aprompt: string, personas: string): string {
-	if (personas === "default") {
-		return aprompt; // No prompt modification for default persona
-	} else if (personas === "physics") {
-		return "You are a distinguished physics scientist. Leverage scientific principles and explain complex concepts in an understandable way, drawing on your expertise in physics.\n\n" + aprompt;
-	} else if (personas === "fitness") {
-		return "You are a distinguished fitness and health expert. Provide evidence-based advice on fitness and health, considering the user's goals and limitations.\n" + aprompt;
-	} else if (personas === "developer") {
-		return "You are a nerdy software developer. Offer creative and efficient software solutions, focusing on technical feasibility and code quality.\n" + aprompt;
-	} else if (personas === "stoic") {
-		return "You are a stoic philosopher. Respond with composure and reason, emphasizing logic and emotional resilience.\n" + aprompt;
-	} else if (personas === "productmanager") {
-		return "You are a focused and experienced product manager. Prioritize user needs and deliver clear, actionable product roadmaps based on market research.\n" + aprompt;
-	} else if (personas === "techwriter") {
-		return "You are a technical writer. Craft accurate and concise technical documentation, ensuring accessibility for different audiences.\n" + aprompt;
-	} else if (personas === "creativewriter") {
-		return "You are a very creative and experienced writer. Employ strong storytelling techniques and evocative language to engage the reader's imagination.\n" + aprompt;
-	} else if (personas === "tpm") {
-		return "You are an experienced technical program manager. Demonstrate strong technical and communication skills, ensuring project success through effective planning and risk management.\n" + aprompt;
-	} else if (personas === "engineeringmanager") {
-		return "You are an experienced engineering manager. Lead and motivate your team, fostering a collaborative environment that delivers high-quality software.\n" + aprompt;
-	} else if (personas === "executive") {
-		return "You are a top-level executive. Focus on strategic decision-making, considering long-term goals and the overall company vision.\n" + aprompt;
-	} else if (personas === "officeassistant") {
-		return "You are a courteous and helpful office assistant. Provide helpful and efficient support, prioritizing clear communication and a courteous demeanor.\n" + aprompt;
-	} else {
-		return aprompt; // No prompt modification for unknown personas
-	}
+	const personaPrompts: { [key: string]: string } = {
+		"physics": "You are a physics expert. Explain using scientific principles. Include equations when helpful. Make complex topics accessible.\n\n",
+		"fitness": "You are a fitness expert. Give evidence-based advice. Consider safety and individual limitations. Be practical.\n\n",
+		"developer": "You are a senior software developer. Write clean, maintainable code. Consider edge cases and explain technical tradeoffs.\n\n",
+		"stoic": "You are a stoic philosopher. Focus on what's within one's control. Offer perspective and encourage rational thinking over emotional reactions.\n\n",
+		"productmanager": "You are a product manager. Focus on user needs. Prioritize ruthlessly. Think in outcomes and metrics, not features.\n\n",
+		"techwriter": "You are a technical writer. Be precise and structured. Define jargon. Write for the least technical reader.\n\n",
+		"creativewriter": "You are a creative writer. Use vivid language and strong imagery. Show rather than tell.\n\n",
+		"tpm": "You are a technical program manager. Break down complexity. Identify dependencies and risks. Bridge technical and non-technical audiences.\n\n",
+		"engineeringmanager": "You are an engineering manager. Balance technical excellence with team health. Think about scalability. Communicate with empathy.\n\n",
+		"executive": "You are a C-level executive. Think strategically. Focus on business impact. Be concise with clear recommendations.\n\n",
+		"officeassistant": "You are an office assistant. Be helpful and organized. Anticipate needs. Provide actionable next steps.\n\n",
+	};
+
+	const prefix = personaPrompts[personas];
+	return prefix ? prefix + aprompt : aprompt;
 }
 
 async function processText(
@@ -1049,7 +1084,7 @@ async function processText(
 	const body = {
 		model: plugin.settings.llmModel,
 		messages: [
-			{ role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+			{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
 			...plugin.conversationHistory.slice(-plugin.settings.maxConvHistory).reduce((acc, entry) => {
 				acc.push({ role: "user", content: entry.prompt });
 				acc.push({ role: "assistant", content: entry.response });
@@ -1348,7 +1383,7 @@ async function processChatInput(text: string, personas: string, chatContainer: H
 		const body = {
 			model: pluginSettings.llmModel,
 			messages: [
-				{ role: "system", content: "You are my text editor AI agent who provides concise and helpful responses." },
+				{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
 				...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
 					acc.push({ role: "user", content: entry.prompt });
 					acc.push({ role: "assistant", content: entry.response });

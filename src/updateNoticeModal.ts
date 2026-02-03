@@ -1,39 +1,141 @@
-import { App, Modal, MarkdownRenderer, Component } from "obsidian";
+import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
+
+// Changelog entries - add new versions at the top
+const CHANGELOGS: { version: string; date: string; changes: string }[] = [
+	{
+		version: "2.3.1",
+		date: "2024-02",
+		changes: `
+**New Features**
+- **Redesigned RAG Chat**: New chat interface with welcome message, example queries, and clickable sources
+- **Changelog in Settings**: View version history anytime from Settings → About
+
+**RAG Improvements**
+- Smarter chunking with overlap for better context preservation
+- Incremental indexing - only re-indexes changed files
+- Content preprocessing - strips frontmatter and cleans markdown
+- Better error messages when notes aren't indexed
+
+**UI/UX**
+- Commands organized with prefixes (Text:, Chat:, Web:, Notes:)
+- Ribbon menu grouped logically with separators
+- Settings page organized into 7 clear sections
+- All prompts improved for better LLM output
+- Persona prompts rewritten to be more actionable
+`,
+	},
+	{
+		version: "2.3.0",
+		date: "2024-01",
+		changes: `
+**New Features**
+- **Edit with Prompt**: Edit selected text with preset or custom prompts
+  - 8 presets: fix grammar, make concise, expand, simplify, formal/casual tone, bullet points, improve clarity
+  - Custom prompt input for one-off instructions
+
+**Security**
+- Fixed dependency vulnerabilities (langchain, axios, form-data, js-yaml)
+
+**Improvements**
+- Clearer error messages for embedding failures
+`,
+	},
+	{
+		version: "2.2.1",
+		date: "2024-01",
+		changes: `
+**Bug Fixes**
+- Fixed re-embedding issue that caused embeddings to regenerate on every restart
+- Proper persistent storage for embeddings
+
+**Improvements**
+- Storage diagnostics command
+- Shows embedding count on startup
+`,
+	},
+	{
+		version: "2.2.0",
+		date: "2024-01",
+		changes: `
+**New Features**
+- Multi-provider support: Ollama, OpenAI, LM Studio
+- Easy provider switching in settings
+- Configurable temperature and max tokens
+
+**Improvements**
+- Code refactoring with src/ directory structure
+`,
+	},
+];
 
 export class UpdateNoticeModal extends Modal {
+	private component: Component;
+
 	constructor(app: App, private version: string) {
 		super(app);
+		this.component = new Component();
 	}
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h2", { text: `Local LLM Helper updated to v${this.version}` });
+		this.component.load();
 
-		const changelogMd = `
-## What's New in v${this.version}
+		contentEl.addClass("llm-update-modal");
 
-### 🚀 New Features
-- **Edit with Prompt**: New command to edit selected text with preset or custom prompts
-  - Access via Command Palette or Ribbon Menu
-  - 8 preset prompts: fix grammar, make concise, expand, simplify, formal/casual tone, bullet points, improve clarity
-  - Custom prompt input for one-off instructions
+		// Header
+		contentEl.createEl("h2", { text: `Updated to v${this.version}` });
 
-### 🔒 Security Updates
-- Fixed all dependency vulnerabilities (langchain, axios, form-data, js-yaml)
-- Updated to TypeScript 5.x
+		// Current version changelog
+		const currentChangelog = CHANGELOGS.find(c => c.version === this.version);
+		if (currentChangelog) {
+			const currentSection = contentEl.createDiv({ cls: "llm-changelog-current" });
+			MarkdownRenderer.render(
+				this.app,
+				currentChangelog.changes,
+				currentSection,
+				"",
+				this.component
+			);
+		}
 
-### 🔧 Improvements
-- **Better Error Messages**: Clearer error messages when embeddings fail (e.g., wrong model type loaded)
+		// Previous versions (collapsible)
+		const previousVersions = CHANGELOGS.filter(c => c.version !== this.version);
+		if (previousVersions.length > 0) {
+			const detailsEl = contentEl.createEl("details", { cls: "llm-changelog-previous" });
+			detailsEl.createEl("summary", { text: "Previous versions" });
 
-[Full Changelog](https://github.com/manimohans/obsidian-local-llm-helper/releases)
-        `;
+			for (const changelog of previousVersions) {
+				const versionSection = detailsEl.createDiv({ cls: "llm-changelog-version" });
+				versionSection.createEl("h4", { text: `v${changelog.version}` });
+				MarkdownRenderer.render(
+					this.app,
+					changelog.changes,
+					versionSection,
+					"",
+					this.component
+				);
+			}
+		}
 
-		const dummyComponent = new Component();
-		MarkdownRenderer.render(this.app, changelogMd, contentEl, "", dummyComponent);
+		// Footer with buttons
+		const footer = contentEl.createDiv({ cls: "llm-changelog-footer" });
+
+		new Setting(footer)
+			.addButton(btn => btn
+				.setButtonText("View on GitHub")
+				.onClick(() => {
+					window.open("https://github.com/manimohans/obsidian-local-llm-helper/releases", "_blank");
+				}))
+			.addButton(btn => btn
+				.setButtonText("Got it")
+				.setCta()
+				.onClick(() => {
+					this.close();
+				}));
 	}
 
 	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
+		this.component.unload();
+		this.contentEl.empty();
 	}
 }

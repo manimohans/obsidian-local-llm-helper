@@ -26,7 +26,7 @@ export async function generateAndAppendTags(app: App, settings: OLocalLLMSetting
 }
 
 async function generateTags(text: string, settings: OLocalLLMSettings): Promise<string[]> {
-	const prompt = "Generate 1-5 hashtags for the following text. Return only the hashtags, separated by spaces:";
+	const prompt = "Generate 3-5 relevant hashtags for the following text. Return only hashtags starting with #, separated by spaces. No explanations:";
 
 	const body = {
 		model: settings.llmModel,

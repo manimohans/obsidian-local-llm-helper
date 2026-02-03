@@ -12,12 +12,27 @@ interface StoredEmbedding {
 	id: string;
 	content: string;
 	vector: number[];
-	metadata: any;
+	metadata: EmbeddingMetadata;
+}
+
+interface EmbeddingMetadata {
+	source: string;
+	fileName: string;
+	chunk: number;
+	totalChunks: number;
+	indexed: number;
+	fileModified: number;
+}
+
+interface FileIndex {
+	path: string;
+	modified: number;
+	chunks: number;
 }
 
 interface EmbeddingData {
 	embeddings: StoredEmbedding[];
-	indexedFiles: string[];
+	fileIndex: FileIndex[];
 	lastIndexed: number;
 	version: string;
 	settings: {
@@ -27,14 +42,18 @@ interface EmbeddingData {
 	};
 }
 
-const CHUNK_SIZE = 1000;
+// Chunking configuration
+const CHUNK_SIZE = 800;        // Smaller chunks for better precision
+const CHUNK_OVERLAP = 100;     // Overlap to preserve context
+const MIN_CONTENT_LENGTH = 50; // Skip files with less content
 
 export class RAGManager {
 	private vectorStore: MemoryVectorStore;
 	private embeddings: OpenAIEmbeddings;
-	private indexedFiles: string[] = [];
+	private fileIndex: Map<string, FileIndex> = new Map();
 	private provider: string;
 	private isLoaded: boolean = false;
+	private cachedEmbeddings: Map<string, StoredEmbedding[]> = new Map();
 
 	constructor(
 		private vault: Vault,
@@ -42,59 +61,61 @@ export class RAGManager {
 		private plugin: Plugin
 	) {
 		this.provider = this.settings.providerType || 'ollama';
-
-		// Initialize embeddings using unified OpenAI-compatible client
-		// Works with Ollama, LM Studio, vLLM, OpenAI, and any OpenAI-compatible server
 		this.embeddings = new OpenAIEmbeddings(
 			this.settings.openAIApiKey || 'not-needed',
 			this.settings.embeddingModelName,
 			this.settings.serverAddress
 		);
-
 		this.vectorStore = new MemoryVectorStore(this.embeddings);
 	}
 
 	async initialize(): Promise<void> {
 		if (this.isLoaded) return;
-		
+
 		console.log('🔄 RAGManager: Starting initialization...');
-		console.log(`📁 RAGManager: Plugin settings path: ${this.plugin.manifest.dir}/data.json`);
-		console.log(`📁 RAGManager: Embeddings path: ${this.plugin.manifest.dir}/embeddings.json`);
-		
+
 		try {
 			await this.loadEmbeddings();
 			this.isLoaded = true;
-			console.log('✅ RAGManager initialized with persistent storage');
+			console.log('✅ RAGManager initialized');
 		} catch (error) {
-			console.error('❌ Failed to load embeddings, starting fresh:', error);
+			console.error('❌ Failed to load embeddings:', error);
 			this.isLoaded = true;
 		}
 	}
 
 	updateSettings(settings: OLocalLLMSettings): void {
+		const modelChanged = settings.embeddingModelName !== this.settings.embeddingModelName;
+		const serverChanged = settings.serverAddress !== this.settings.serverAddress;
+
 		this.settings = settings;
 		this.provider = settings.providerType || 'ollama';
 
-		// Reinitialize embeddings with new settings (unified OpenAI-compatible client)
+		// Only reinitialize embeddings client, preserve vector store data
 		this.embeddings = new OpenAIEmbeddings(
 			settings.openAIApiKey || 'not-needed',
 			settings.embeddingModelName,
 			settings.serverAddress
 		);
 
-		// Update vector store with new embeddings
-		this.vectorStore = new MemoryVectorStore(this.embeddings);
-
-		console.log(`RAGManager settings updated - Server: ${settings.serverAddress}, Embedding Model: ${settings.embeddingModelName}`);
+		// Only warn if embedding-related settings changed
+		if (modelChanged || serverChanged) {
+			console.log('⚠️ RAGManager: Embedding settings changed. Re-index recommended for best results.');
+		}
 	}
 
 	async getRAGResponse(query: string): Promise<{ response: string, sources: string[] }> {
+		const indexedCount = this.getIndexedFilesCount();
+		if (indexedCount === 0) {
+			throw new Error("No notes indexed. Please index your notes first in Settings → Notes Index.");
+		}
+
 		try {
 			const docs = await this.vectorStore.similaritySearch(query, 4);
-			if (docs.length === 0) throw new Error("No relevant documents found");
+			if (docs.length === 0) {
+				throw new Error("No relevant content found. Try rephrasing your question.");
+			}
 
-			// Initialize LLM using unified OpenAI-compatible client
-			// Works with Ollama, LM Studio, vLLM, OpenAI, and any OpenAI-compatible server
 			const baseURL = this.settings.serverAddress.endsWith('/v1')
 				? this.settings.serverAddress
 				: `${this.settings.serverAddress}/v1`;
@@ -103,13 +124,20 @@ export class RAGManager {
 				openAIApiKey: this.settings.openAIApiKey || 'not-needed',
 				modelName: this.settings.llmModel,
 				temperature: this.settings.temperature,
-				configuration: {
-					baseURL: baseURL,
-				},
+				configuration: { baseURL },
 			});
 
 			const promptTemplate = PromptTemplate.fromTemplate(
-				`Answer the following question based on the context:\n\nContext: {context}\nQuestion: {input}\nAnswer:`
+				`You are a helpful assistant answering questions based on the user's notes.
+Use the context below to answer the question. If the context doesn't contain relevant information, say so.
+Be concise and cite specific notes when possible.
+
+Context:
+{context}
+
+Question: {input}
+
+Answer:`
 			);
 
 			const documentChain = await createStuffDocumentsChain({ llm, prompt: promptTemplate });
@@ -134,88 +162,293 @@ export class RAGManager {
 	async indexNotes(progressCallback: (progress: number) => void): Promise<void> {
 		await this.initialize();
 		await this.waitForVaultReady();
-		console.log("Starting indexing process...");
 
-		const allFiles = this.vault.getFiles().filter(file => file.extension === 'md');
-		console.log("All markdown files in vault:", allFiles.map(file => file.path));
+		console.log("📚 Starting indexing process...");
 
+		const allFiles = this.vault.getMarkdownFiles();
 		const totalFiles = allFiles.length;
-		console.log(`Found ${totalFiles} markdown files to index.`);
 
-		if (totalFiles > 0) {
-			await this.processFiles(allFiles, progressCallback);
-			
-			// Save embeddings to persistent storage after indexing
-			await this.saveEmbeddings();
-		} else {
-			console.log("No markdown files found in the vault. Please check your vault configuration.");
+		if (totalFiles === 0) {
+			console.log("No markdown files found in vault.");
+			return;
 		}
 
-		console.log(`Indexing complete. ${this.indexedFiles.length} files indexed.`);
-	}
+		// Determine which files need indexing
+		const { toIndex, toRemove, unchanged } = await this.getFilesToProcess(allFiles);
 
-	private async processFiles(files: TFile[], progressCallback: (progress: number) => void): Promise<void> {
-		this.indexedFiles = []; // Reset indexed files
-		const totalFiles = files.length;
-		let successfullyIndexed = 0;
+		console.log(`📊 Index status: ${toIndex.length} new/modified, ${toRemove.length} deleted, ${unchanged.length} unchanged`);
 
-		for (let i = 0; i < totalFiles; i++) {
-			const file = files[i];
+		// Remove deleted files from index
+		for (const path of toRemove) {
+			this.removeFileFromIndex(path);
+		}
+
+		// Process new/modified files
+		let processed = 0;
+		const totalToProcess = toIndex.length;
+
+		for (const file of toIndex) {
 			try {
-				console.log(`Processing file ${i + 1}/${totalFiles}: ${file.path}`);
-				const content = await this.vault.cachedRead(file);
-				console.log(`File content length: ${content.length} characters`);
-
-				const chunks = this.splitIntoChunks(content, CHUNK_SIZE);
-				console.log(`Split content into ${chunks.length} chunks`);
-
-				for (let j = 0; j < chunks.length; j++) {
-					const chunk = chunks[j];
-					const doc = new Document({
-						pageContent: chunk,
-						metadata: { source: file.path, chunk: j },
-					});
-
-					await this.vectorStore.addDocuments([doc]);
-				}
-
-				this.indexedFiles.push(file.path);
-				successfullyIndexed++;
-				console.log(`Indexed file ${successfullyIndexed}/${totalFiles}: ${file.path}`);
+				await this.indexFile(file);
+				processed++;
+				progressCallback((processed / totalToProcess) * 0.9 + 0.1); // Reserve 10% for saving
 			} catch (error) {
-				console.error(`Error indexing file ${file.path}:`, error);
+				console.error(`Error indexing ${file.path}:`, error);
 			}
-
-			progressCallback((i + 1) / totalFiles);
 		}
 
-		console.log(`Successfully indexed ${successfullyIndexed} out of ${totalFiles} files.`);
+		// Save to persistent storage
+		progressCallback(0.95);
+		await this.saveEmbeddings();
+		progressCallback(1);
+
+		console.log(`✅ Indexing complete. ${this.fileIndex.size} files indexed.`);
 	}
 
-	private splitIntoChunks(content: string, chunkSize: number): string[] {
-		const chunks: string[] = [];
-		let currentChunk = '';
+	private async getFilesToProcess(allFiles: TFile[]): Promise<{
+		toIndex: TFile[];
+		toRemove: string[];
+		unchanged: string[];
+	}> {
+		const currentPaths = new Set(allFiles.map(f => f.path));
+		const toIndex: TFile[] = [];
+		const unchanged: string[] = [];
+		const toRemove: string[] = [];
 
-		content.split(/\s+/).forEach((word) => {
-			if (currentChunk.length + word.length + 1 <= chunkSize) {
-				currentChunk += (currentChunk ? ' ' : '') + word;
-			} else {
-				chunks.push(currentChunk);
-				currentChunk = word;
+		// Find files to remove (deleted from vault)
+		for (const [path] of this.fileIndex) {
+			if (!currentPaths.has(path)) {
+				toRemove.push(path);
 			}
+		}
+
+		// Find files to index (new or modified)
+		for (const file of allFiles) {
+			const existing = this.fileIndex.get(file.path);
+
+			if (!existing) {
+				// New file
+				toIndex.push(file);
+			} else if (file.stat.mtime > existing.modified) {
+				// Modified file
+				toIndex.push(file);
+			} else {
+				unchanged.push(file.path);
+			}
+		}
+
+		return { toIndex, toRemove, unchanged };
+	}
+
+	private async indexFile(file: TFile): Promise<void> {
+		const content = await this.vault.cachedRead(file);
+
+		// Preprocess content
+		const cleanedContent = this.preprocessContent(content);
+
+		// Skip files with minimal content
+		if (cleanedContent.length < MIN_CONTENT_LENGTH) {
+			console.log(`⏭️ Skipping ${file.path} (content too short)`);
+			return;
+		}
+
+		// Remove old embeddings for this file
+		this.removeFileFromIndex(file.path);
+
+		// Create chunks with overlap
+		const chunks = this.splitIntoChunks(cleanedContent);
+
+		if (chunks.length === 0) {
+			return;
+		}
+
+		const fileName = file.basename;
+		const now = Date.now();
+
+		// Create documents and add to vector store
+		for (let i = 0; i < chunks.length; i++) {
+			const metadata: EmbeddingMetadata = {
+				source: file.path,
+				fileName: fileName,
+				chunk: i,
+				totalChunks: chunks.length,
+				indexed: now,
+				fileModified: file.stat.mtime
+			};
+
+			const doc = new Document({
+				pageContent: chunks[i],
+				metadata: metadata
+			});
+
+			await this.vectorStore.addDocuments([doc]);
+		}
+
+		// Update file index
+		this.fileIndex.set(file.path, {
+			path: file.path,
+			modified: file.stat.mtime,
+			chunks: chunks.length
 		});
 
-		if (currentChunk) {
-			chunks.push(currentChunk);
+		console.log(`✅ Indexed ${file.path} (${chunks.length} chunks)`);
+	}
+
+	private removeFileFromIndex(path: string): void {
+		// Remove from file index
+		this.fileIndex.delete(path);
+
+		// Remove embeddings from vector store
+		const memoryVectors = (this.vectorStore as any).memoryVectors;
+		if (memoryVectors && Array.isArray(memoryVectors)) {
+			(this.vectorStore as any).memoryVectors = memoryVectors.filter(
+				(v: any) => v.metadata?.source !== path
+			);
+		}
+
+		// Remove from cache
+		this.cachedEmbeddings.delete(path);
+	}
+
+	private preprocessContent(content: string): string {
+		let processed = content;
+
+		// Remove YAML frontmatter
+		processed = processed.replace(/^---[\s\S]*?---\n*/m, '');
+
+		// Remove code blocks (keep the description if any)
+		processed = processed.replace(/```[\s\S]*?```/g, '');
+
+		// Convert Obsidian links to plain text: [[link|alias]] -> alias, [[link]] -> link
+		processed = processed.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2');
+		processed = processed.replace(/\[\[([^\]]+)\]\]/g, '$1');
+
+		// Remove image embeds
+		processed = processed.replace(/!\[\[.*?\]\]/g, '');
+		processed = processed.replace(/!\[.*?\]\(.*?\)/g, '');
+
+		// Remove HTML tags
+		processed = processed.replace(/<[^>]*>/g, '');
+
+		// Remove markdown formatting but keep text
+		processed = processed.replace(/(\*\*|__)(.*?)\1/g, '$2'); // Bold
+		processed = processed.replace(/(\*|_)(.*?)\1/g, '$2');   // Italic
+		processed = processed.replace(/~~(.*?)~~/g, '$1');        // Strikethrough
+		processed = processed.replace(/`([^`]+)`/g, '$1');        // Inline code
+
+		// Remove heading markers but keep text
+		processed = processed.replace(/^#{1,6}\s+/gm, '');
+
+		// Remove bullet/list markers
+		processed = processed.replace(/^[\s]*[-*+]\s+/gm, '');
+		processed = processed.replace(/^[\s]*\d+\.\s+/gm, '');
+
+		// Remove blockquotes marker
+		processed = processed.replace(/^>\s*/gm, '');
+
+		// Remove horizontal rules
+		processed = processed.replace(/^[-*_]{3,}\s*$/gm, '');
+
+		// Normalize whitespace
+		processed = processed.replace(/\n{3,}/g, '\n\n');
+		processed = processed.replace(/[ \t]+/g, ' ');
+		processed = processed.trim();
+
+		return processed;
+	}
+
+	private splitIntoChunks(content: string): string[] {
+		const chunks: string[] = [];
+
+		if (!content || content.length === 0) {
+			return chunks;
+		}
+
+		// Split by paragraphs first
+		const paragraphs = content.split(/\n\n+/);
+		let currentChunk = '';
+
+		for (const paragraph of paragraphs) {
+			const trimmedPara = paragraph.trim();
+			if (!trimmedPara) continue;
+
+			// If adding this paragraph exceeds chunk size
+			if (currentChunk.length + trimmedPara.length + 2 > CHUNK_SIZE) {
+				// Save current chunk if it has content
+				if (currentChunk.length >= MIN_CONTENT_LENGTH) {
+					chunks.push(currentChunk.trim());
+				}
+
+				// If paragraph itself is too long, split by sentences
+				if (trimmedPara.length > CHUNK_SIZE) {
+					const sentenceChunks = this.splitLongText(trimmedPara);
+					chunks.push(...sentenceChunks);
+					currentChunk = '';
+				} else {
+					// Start new chunk with overlap from previous
+					const overlap = this.getOverlapText(currentChunk);
+					currentChunk = overlap + trimmedPara;
+				}
+			} else {
+				currentChunk += (currentChunk ? '\n\n' : '') + trimmedPara;
+			}
+		}
+
+		// Don't forget the last chunk
+		if (currentChunk.length >= MIN_CONTENT_LENGTH) {
+			chunks.push(currentChunk.trim());
 		}
 
 		return chunks;
 	}
 
+	private splitLongText(text: string): string[] {
+		const chunks: string[] = [];
+
+		// Split by sentences (rough approximation)
+		const sentences = text.split(/(?<=[.!?])\s+/);
+		let currentChunk = '';
+
+		for (const sentence of sentences) {
+			if (currentChunk.length + sentence.length + 1 > CHUNK_SIZE) {
+				if (currentChunk.length >= MIN_CONTENT_LENGTH) {
+					chunks.push(currentChunk.trim());
+				}
+				const overlap = this.getOverlapText(currentChunk);
+				currentChunk = overlap + sentence;
+			} else {
+				currentChunk += (currentChunk ? ' ' : '') + sentence;
+			}
+		}
+
+		if (currentChunk.length >= MIN_CONTENT_LENGTH) {
+			chunks.push(currentChunk.trim());
+		}
+
+		return chunks;
+	}
+
+	private getOverlapText(text: string): string {
+		if (!text || text.length <= CHUNK_OVERLAP) {
+			return '';
+		}
+
+		// Get last N characters, but try to break at word boundary
+		const overlapStart = text.length - CHUNK_OVERLAP;
+		const overlap = text.substring(overlapStart);
+
+		// Find first space to get complete words
+		const firstSpace = overlap.indexOf(' ');
+		if (firstSpace > 0 && firstSpace < CHUNK_OVERLAP / 2) {
+			return overlap.substring(firstSpace + 1) + ' ';
+		}
+
+		return overlap + ' ';
+	}
+
 	async findSimilarNotes(query: string): Promise<string> {
 		try {
 			const similarDocs = await this.vectorStore.similaritySearch(query, 5);
-			console.log("Similar docs found:", similarDocs.length);
 
 			if (similarDocs.length === 0) {
 				return '';
@@ -223,19 +456,14 @@ export class RAGManager {
 
 			const uniqueBacklinks = new Map<string, string>();
 
-			similarDocs.forEach((doc, index) => {
-				const backlink = `[[${doc.metadata.source}]]`;
-				console.log(`Processing doc ${index + 1}:`, backlink);
-				if (!uniqueBacklinks.has(backlink)) {
-					const entry = `${backlink}: ${doc.pageContent.substring(0, 100)}...`;
-					uniqueBacklinks.set(backlink, entry);
-					console.log("Added unique backlink:", entry);
-				} else {
-					console.log("Duplicate backlink found:", backlink);
+			for (const doc of similarDocs) {
+				const source = doc.metadata.source;
+				if (!uniqueBacklinks.has(source)) {
+					const preview = doc.pageContent.substring(0, 100).replace(/\n/g, ' ');
+					uniqueBacklinks.set(source, `[[${source}]]: ${preview}...`);
 				}
-			});
+			}
 
-			console.log("Final unique backlinks:", Array.from(uniqueBacklinks.values()));
 			return Array.from(uniqueBacklinks.values()).join('\n');
 		} catch (error) {
 			console.error('Error in findSimilarNotes:', error);
@@ -244,7 +472,7 @@ export class RAGManager {
 	}
 
 	getIndexedFilesCount(): number {
-		return this.indexedFiles.length;
+		return this.fileIndex.size;
 	}
 
 	isInitialized(): boolean {
@@ -253,17 +481,15 @@ export class RAGManager {
 
 	async saveEmbeddings(): Promise<void> {
 		try {
-			console.log('Saving embeddings to persistent storage...');
-			
-			// Extract embeddings from MemoryVectorStore
+			console.log('💾 Saving embeddings...');
+
 			const storedEmbeddings: StoredEmbedding[] = [];
 			const vectorStoreData = (this.vectorStore as any).memoryVectors;
-			
+
 			if (vectorStoreData && Array.isArray(vectorStoreData)) {
-				for (let i = 0; i < vectorStoreData.length; i++) {
-					const item = vectorStoreData[i];
+				for (const item of vectorStoreData) {
 					storedEmbeddings.push({
-						id: `${item.metadata?.source || 'unknown'}_${item.metadata?.chunk || i}`,
+						id: `${item.metadata?.source || 'unknown'}_${item.metadata?.chunk || 0}`,
 						content: item.content,
 						vector: item.embedding,
 						metadata: item.metadata
@@ -273,9 +499,9 @@ export class RAGManager {
 
 			const embeddingData: EmbeddingData = {
 				embeddings: storedEmbeddings,
-				indexedFiles: this.indexedFiles,
+				fileIndex: Array.from(this.fileIndex.values()),
 				lastIndexed: Date.now(),
-				version: '1.0',
+				version: '2.0',
 				settings: {
 					provider: this.provider,
 					model: this.settings.embeddingModelName,
@@ -283,149 +509,99 @@ export class RAGManager {
 				}
 			};
 
-			// Save embeddings data separately from plugin settings
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
 			await adapter.write(embeddingPath, JSON.stringify(embeddingData));
-			console.log(`✅ Saved ${storedEmbeddings.length} embeddings to disk`);
+
+			console.log(`✅ Saved ${storedEmbeddings.length} embeddings from ${this.fileIndex.size} files`);
 		} catch (error) {
 			console.error('Failed to save embeddings:', error);
+			throw error;
 		}
 	}
 
 	async loadEmbeddings(): Promise<void> {
 		try {
-			console.log('📂 RAGManager: Loading embeddings from persistent storage...');
-			// Load embeddings data separately from plugin settings
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
-			
+
 			let data: EmbeddingData;
 			try {
 				const embeddingJson = await adapter.read(embeddingPath);
 				data = JSON.parse(embeddingJson);
-			} catch (fileError) {
-				console.log('📂 RAGManager: No embeddings file found, starting fresh');
-				return;
-			}
-			
-			console.log('📊 RAGManager: Raw data check:', {
-				dataExists: !!data,
-				hasEmbeddings: data?.embeddings?.length || 0,
-				hasIndexedFiles: data?.indexedFiles?.length || 0,
-				lastIndexed: data?.lastIndexed ? new Date(data.lastIndexed).toLocaleString() : 'Never',
-				settingsMatch: data?.settings ? {
-					provider: data.settings.provider,
-					model: data.settings.model,
-					serverAddress: data.settings.serverAddress
-				} : 'No settings'
-			});
-			
-			if (!data || !data.embeddings) {
-				console.log('🆕 RAGManager: No saved embeddings found, starting fresh');
+			} catch {
+				console.log('📂 No existing embeddings found');
 				return;
 			}
 
-			// Check if settings have changed significantly
+			if (!data?.embeddings?.length) {
+				console.log('📂 Empty embeddings file');
+				return;
+			}
+
+			// Check if settings changed
 			if (this.shouldRebuildIndex(data.settings)) {
-				console.log('⚙️ RAGManager: Settings changed, embeddings will be rebuilt on next index');
-				console.log('Current vs Saved:', {
-					current: { provider: this.provider, model: this.settings.embeddingModelName, server: this.settings.serverAddress },
-					saved: data.settings
-				});
-				console.log('❌ RAGManager: NOT loading existing embeddings due to settings mismatch');
-				return;
+				console.log('⚠️ Embedding settings changed. Re-indexing recommended.');
+				// Still load old embeddings, but warn user
 			}
 
-			// Reconstruct MemoryVectorStore from saved data
-			const documents: Document[] = [];
-			
-			for (const stored of data.embeddings) {
-				const doc = new Document({
-					pageContent: stored.content,
-					metadata: stored.metadata
-				});
-				documents.push(doc);
+			// Restore vector store
+			this.vectorStore = new MemoryVectorStore(this.embeddings);
+
+			const memoryVectors = data.embeddings.map(stored => ({
+				content: stored.content,
+				embedding: stored.vector,
+				metadata: stored.metadata
+			}));
+
+			(this.vectorStore as any).memoryVectors = memoryVectors;
+
+			// Restore file index
+			this.fileIndex.clear();
+
+			// Handle both old format (indexedFiles: string[]) and new format (fileIndex: FileIndex[])
+			if (data.fileIndex) {
+				for (const file of data.fileIndex) {
+					this.fileIndex.set(file.path, file);
+				}
+			} else if ((data as any).indexedFiles) {
+				// Migrate from old format
+				for (const path of (data as any).indexedFiles) {
+					this.fileIndex.set(path, { path, modified: 0, chunks: 0 });
+				}
 			}
 
-			if (documents.length > 0) {
-				console.log(`🔄 RAGManager: Reconstructing vector store with ${documents.length} documents WITHOUT re-embedding...`);
-				
-				// Create new vector store WITHOUT calling addDocuments (which re-embeds)
-				this.vectorStore = new MemoryVectorStore(this.embeddings);
-				
-				// Directly populate the internal vector storage with saved embeddings
-				const memoryVectors = data.embeddings.map(stored => ({
-					content: stored.content,
-					embedding: stored.vector,
-					metadata: stored.metadata
-				}));
-				
-				// Set the internal memoryVectors directly
-				(this.vectorStore as any).memoryVectors = memoryVectors;
-				
-				console.log(`✅ RAGManager: Restored ${memoryVectors.length} embeddings WITHOUT re-embedding`);
-			}
+			console.log(`✅ Loaded ${data.embeddings.length} embeddings from ${this.fileIndex.size} files`);
 
-			this.indexedFiles = data.indexedFiles || [];
-			
-			console.log(`✅ RAGManager: Successfully loaded ${data.embeddings.length} embeddings from disk`);
-			console.log(`📁 RAGManager: ${this.indexedFiles.length} files were previously indexed`);
-			console.log(`🗂️ RAGManager: Files: ${this.indexedFiles.slice(0, 3).join(', ')}${this.indexedFiles.length > 3 ? '...' : ''}`);
-			
-			// Show user-friendly message
-			const lastIndexedDate = new Date(data.lastIndexed).toLocaleString();
-			console.log(`🕒 RAGManager: Last indexed: ${lastIndexedDate}`);
-			
 		} catch (error) {
 			console.error('Failed to load embeddings:', error);
-			throw error;
 		}
 	}
 
 	private shouldRebuildIndex(savedSettings: any): boolean {
-		if (!savedSettings) {
-			console.log('🔄 RAGManager: No saved settings, will rebuild');
-			return true;
-		}
-		
-		const currentSettings = {
-			provider: this.provider,
-			model: this.settings.embeddingModelName,
-			serverAddress: this.settings.serverAddress
-		};
-		
-		console.log('🔍 RAGManager: Comparing settings:');
-		console.log('  Current:', currentSettings);
-		console.log('  Saved:', savedSettings);
-		
-		// Check each comparison individually
-		const providerChanged = savedSettings.provider !== this.provider;
-		const modelChanged = savedSettings.model !== this.settings.embeddingModelName;
-		const serverChanged = savedSettings.serverAddress !== this.settings.serverAddress;
-		
-		console.log(`🔍 RAGManager: Individual comparisons:`);
-		console.log(`  Provider changed: ${providerChanged} (${savedSettings.provider} !== ${this.provider})`);
-		console.log(`  Model changed: ${modelChanged} (${savedSettings.model} !== ${this.settings.embeddingModelName})`);
-		console.log(`  Server changed: ${serverChanged} (${savedSettings.serverAddress} !== ${this.settings.serverAddress})`);
-		
-		const needsRebuild = providerChanged || modelChanged || serverChanged;
-		console.log(`🔄 RAGManager: Needs rebuild? ${needsRebuild}`);
-		
-		return needsRebuild;
+		if (!savedSettings) return true;
+
+		return (
+			savedSettings.model !== this.settings.embeddingModelName ||
+			savedSettings.serverAddress !== this.settings.serverAddress
+		);
 	}
 
-	async getStorageStats(): Promise<{ totalEmbeddings: number; indexedFiles: number; lastIndexed: string; storageUsed: string }> {
+	async getStorageStats(): Promise<{
+		totalEmbeddings: number;
+		indexedFiles: number;
+		lastIndexed: string;
+		storageUsed: string;
+	}> {
 		try {
-			// Load embeddings data separately from plugin settings
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
-			
+
 			let data: EmbeddingData;
 			try {
 				const embeddingJson = await adapter.read(embeddingPath);
 				data = JSON.parse(embeddingJson);
-			} catch (fileError) {
+			} catch {
 				return {
 					totalEmbeddings: 0,
 					indexedFiles: 0,
@@ -433,7 +609,7 @@ export class RAGManager {
 					storageUsed: '0 KB'
 				};
 			}
-			
+
 			if (!data) {
 				return {
 					totalEmbeddings: 0,
@@ -444,15 +620,17 @@ export class RAGManager {
 			}
 
 			const storageSize = JSON.stringify(data).length;
-			const storageUsed = storageSize < 1024 
-				? `${storageSize} B` 
-				: storageSize < 1024 * 1024 
+			const storageUsed = storageSize < 1024
+				? `${storageSize} B`
+				: storageSize < 1024 * 1024
 					? `${(storageSize / 1024).toFixed(1)} KB`
 					: `${(storageSize / (1024 * 1024)).toFixed(1)} MB`;
 
+			const indexedFiles = data.fileIndex?.length || (data as any).indexedFiles?.length || 0;
+
 			return {
 				totalEmbeddings: data.embeddings?.length || 0,
-				indexedFiles: data.indexedFiles?.length || 0,
+				indexedFiles,
 				lastIndexed: data.lastIndexed ? new Date(data.lastIndexed).toLocaleString() : 'Never',
 				storageUsed
 			};
@@ -469,32 +647,33 @@ export class RAGManager {
 
 	async clearStoredEmbeddings(): Promise<void> {
 		try {
-			// Clear embeddings data separately from plugin settings
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
-			
+
 			try {
 				await adapter.remove(embeddingPath);
-			} catch (error) {
-				// File might not exist, that's okay
+			} catch {
+				// File might not exist
 			}
-			
-			this.indexedFiles = [];
+
+			this.fileIndex.clear();
+			this.cachedEmbeddings.clear();
 			this.vectorStore = new MemoryVectorStore(this.embeddings);
-			console.log('✅ Cleared all stored embeddings');
+
+			console.log('✅ Cleared all embeddings');
 		} catch (error) {
 			console.error('Failed to clear embeddings:', error);
 		}
 	}
 
 	async waitForVaultReady(): Promise<void> {
-		while (true) {
-			const files = this.vault.getFiles();
-			if (files.length > 0) {
-				break; // Vault is ready if we have files
+		let attempts = 0;
+		while (attempts < 50) {
+			if (this.vault.getFiles().length > 0) {
+				return;
 			}
-			// If no files, wait and try again
 			await new Promise(resolve => setTimeout(resolve, 100));
+			attempts++;
 		}
 	}
 }

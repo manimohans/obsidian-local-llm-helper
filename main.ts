@@ -19,6 +19,7 @@ import { UpdateNoticeModal } from "./src/updateNoticeModal";
 import { RAGManager } from './src/rag';
 import { BacklinkGenerator } from './src/backlinkGenerator';
 import { RAGChatModal } from './src/ragChatModal';
+import { PromptPickerModal } from './src/promptPickerModal';
 
 // Remember to rename these classes and interfaces!
 
@@ -239,6 +240,22 @@ export default class OLocalLLMPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "edit-with-prompt",
+			name: "Edit selected text with prompt",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const selectedText = this.getSelectedText();
+				if (selectedText.length === 0) {
+					new Notice("Please select some text first");
+					return;
+				}
+				new PromptPickerModal(this.app, (prompt: string) => {
+					this.isKillSwitchActive = false;
+					processText(selectedText, prompt, this);
+				}).open();
+			},
+		});
+
+		this.addCommand({
 			id: "llm-chat",
 			name: "Chat with Local LLM Helper",
 			callback: () => {
@@ -375,6 +392,23 @@ export default class OLocalLLMPlugin extends Plugin {
 								this
 							);
 						}
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Edit with prompt...")
+					.setIcon("wand")
+					.onClick(async () => {
+						let selectedText = this.getSelectedText();
+						if (selectedText.length === 0) {
+							new Notice("Please select some text first");
+							return;
+						}
+						new PromptPickerModal(this.app, (prompt: string) => {
+							this.isKillSwitchActive = false;
+							processText(selectedText, prompt, this);
+						}).open();
 					})
 			);
 

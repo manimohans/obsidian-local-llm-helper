@@ -47,6 +47,14 @@ Seamlessly integrate your local LLM with Obsidian. Process large text chunks, tr
 
 
 ## Release notes
+v2.3.0
+* **New Feature - Edit with Prompt**: Edit selected text using preset or custom prompts
+  * Access via Command Palette ("Edit selected text with prompt") or Ribbon Menu
+  * 8 preset prompts: fix grammar, make concise, expand, simplify, formal/casual tone, bullet points, improve clarity
+  * Custom prompt input for one-off instructions
+* **Security Updates**: Fixed all dependency vulnerabilities (langchain, axios, form-data, js-yaml)
+* **Better Error Messages**: Clearer error messages when embeddings fail
+
 v2.2.1
 * **Critical Bug Fix**: Fixed re-embedding issue that caused embeddings to regenerate on every app restart
 * **Proper Persistent Storage**: Embeddings now persist correctly across Obsidian restarts without data conflicts

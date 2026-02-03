@@ -12,20 +12,18 @@ export class UpdateNoticeModal extends Modal {
 		const changelogMd = `
 ## What's New in v${this.version}
 
-### 🔧 Major Bug Fixes
-- **Fixed Re-embedding Issue**: Embeddings no longer re-generate on every app restart
-- **Proper Persistent Storage**: Embeddings now persist correctly across Obsidian restarts
-- **Data Separation**: Plugin settings and embeddings are now stored separately to prevent conflicts
-
 ### 🚀 New Features
-- **Storage Diagnostics**: New command and settings button to check embedding storage status
-- **User Notifications**: Shows embedding count and storage info on startup
-- **Enhanced Logging**: Comprehensive console logging with emojis for better debugging
+- **Edit with Prompt**: New command to edit selected text with preset or custom prompts
+  - Access via Command Palette or Ribbon Menu
+  - 8 preset prompts: fix grammar, make concise, expand, simplify, formal/casual tone, bullet points, improve clarity
+  - Custom prompt input for one-off instructions
+
+### 🔒 Security Updates
+- Fixed all dependency vulnerabilities (langchain, axios, form-data, js-yaml)
+- Updated to TypeScript 5.x
 
 ### 🔧 Improvements
-- **Better Error Handling**: Improved Ollama API integration with proper error messages
-- **Default Settings**: Updated to use Ollama port 11434 and mxbai-embed-large model
-- **Settings UI**: Indexed file count now updates properly in settings panel
+- **Better Error Messages**: Clearer error messages when embeddings fail (e.g., wrong model type loaded)
 
 [Full Changelog](https://github.com/manimohans/obsidian-local-llm-helper/releases)
         `;

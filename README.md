@@ -1,154 +1,227 @@
-# Local LLM Helper - Obsidian Plugin
+# Local LLM Helper
 
-Seamlessly integrate your local LLM with Obsidian. Process large text chunks, transform content with AI, chat with your notes and maintain data privacy — all without leaving your notes.
+An Obsidian plugin that brings the power of local LLMs directly into your notes. Process text, chat with AI, search your vault semantically — all while keeping your data private and local.
 
-## Core Features
+![Local LLM Helper](assets/hero.png)
 
-#### Local LLM Integration:
-* **Multi-Provider Support**: Works with Ollama, OpenAI, and LM Studio (v2.2.0)
-* **Provider Switching**: Easy switching between providers in settings (v2.2.0)
-* **Model Selection**: Users can specify the LLM model to use, tailoring the experience to their needs and hardware
-* **Temperature & Max Tokens**: Configurable generation parameters (v2.2.0)
-* Remember chat history up to 3 previous prompts and responses
-#### Text Processing Commands:
-* Summarization: Condenses selected text while maintaining essential information and markdown formatting.
-* Professional Tone Adjustment: Rewrites selected text to sound more formal and polished.
-* Action Item Generation: Creates a structured list of actionable tasks from text.
-* Custom Prompts: Allows users to define and execute their own prompts for specialized tasks.
-* Prompt-as-Input: Uses the selected text directly as a prompt for creative text generation.
-* Generate backlinks: Generate backlinks to your notes.
-* Web Search: Search the web for selected text.
-* News Search: Search the news for selected text.
+## Features
 
-<img width="704" alt="image" src="https://github.com/user-attachments/assets/b55e305f-2f5c-4dab-9e67-251613065c67">
+### 🔌 Multi-Provider Support
 
-#### LLM Chat Interface:
-* Interactive Chat Window: Engages in multi-turn conversations with the LLM for dynamic interaction.
-* Conversation History: Keeps track of past messages within the same session.
-* Chat with your notes: Chat with your indexed notes.
+Works with your preferred LLM backend:
+- **Ollama** - Run open-source models locally
+- **OpenAI** - Use GPT models with your API key
+- **LM Studio** - Local models with OpenAI-compatible API
 
-<img width="577" alt="image" src="https://github.com/user-attachments/assets/b52b80db-b9a2-4986-8bb2-04aae264afcd">
+Switch providers anytime from settings. Configure temperature, max tokens, and streaming.
 
-#### Ribbon Menu and Status Bar:
-* Ribbon Menu: Provides quick access to common commands and the chat interface.
-* Status Bar: Displays the plugin's current status (ready or generating response).
+### ✍️ Text Processing
 
-<img width="191" alt="image" src="https://github.com/user-attachments/assets/953422d4-b15c-477d-8b28-f6b3f4f76b02">
+Transform selected text with AI-powered commands:
 
-#### Plugin Settings:
-* Server Configuration: Easily set the server address, port, and model name.
-* Custom Prompt: Define a personalized prompt for repeated use.
-* Streaming Output: Toggle real-time, word-by-word output (experimental).
-* Output Mode: Choose to replace or append the generated text to the selection.
-* Personas: Select different personas to tailor the AI's response style.
-* Response formatting: Prepend/Append LLM responses.
+| Command | What it does |
+|---------|--------------|
+| **Summarize** | Condense text while preserving key information |
+| **Make Professional** | Rewrite in a formal, polished tone |
+| **Generate Action Items** | Extract actionable tasks from text |
+| **Custom Prompt** | Use your own saved prompt |
+| **Use as Prompt** | Send selection directly to LLM |
+| **Edit with Prompt** | Choose from 8 presets or write custom instructions |
 
-<img width="838" alt="image" src="https://github.com/user-attachments/assets/8d5f582a-354d-4edd-aad4-e6c5fcbf228f">
+All commands available via Command Palette (prefix: `Text:`) or ribbon menu.
 
+![Ribbon Menu](assets/ribbon-menu.png)
 
-## Release notes
-v2.3.0
-* **New Feature - Edit with Prompt**: Edit selected text using preset or custom prompts
-  * Access via Command Palette ("Edit selected text with prompt") or Ribbon Menu
-  * 8 preset prompts: fix grammar, make concise, expand, simplify, formal/casual tone, bullet points, improve clarity
-  * Custom prompt input for one-off instructions
-* **Security Updates**: Fixed all dependency vulnerabilities (langchain, axios, form-data, js-yaml)
-* **Better Error Messages**: Clearer error messages when embeddings fail
+### 💬 Chat Interfaces
 
-v2.2.1
-* **Critical Bug Fix**: Fixed re-embedding issue that caused embeddings to regenerate on every app restart
-* **Proper Persistent Storage**: Embeddings now persist correctly across Obsidian restarts without data conflicts
-* **Storage Diagnostics**: Added new diagnostic command and settings button to check embedding storage status
-* **User Notifications**: Shows embedding count and storage information on startup
-* **Enhanced Error Handling**: Improved Ollama API integration with better error messages
-* **Settings Improvements**: Indexed file count now updates properly in settings panel
+**LLM Chat** - General conversation with your LLM
+- Remembers last 3 exchanges for context
+- Supports all configured personas
 
-v2.2.0
-* **Multi-Provider Support**: Added support for OpenAI and LM Studio alongside Ollama
-* **Provider Switching**: Easy provider selection in settings (Ollama/OpenAI/LM Studio)
-* **Enhanced Configuration**: Temperature and max tokens are now user-configurable
-* **Code Refactoring**: Improved project structure with files moved to src/ directory
-* **Bug Fix**: Fixed server URL tooltip inconsistency
-* **Security Update**: Updated axios to fix security vulnerability
+**RAG Chat** - Chat with your indexed notes
+- Semantic search across your vault
+- Clickable source references
+- Example queries to get started
 
-v1.1.3
-* Chat history is now stored up to 3 previous prompts and responses.
-* Response formatting: Prepend/Append LLM responses.
-* Server port settings now removed. 
+![RAG Chat](assets/rag-chat.png)
 
-v1.1.1 and v1.1.2
-* Major update: LLM chat functionality that works with available personas
-* New UI for chat interaction : typing indicators, response formatting, modern look for chat interface
-* Streamlined personas related code
-* CSS styling added for different parts of the plugin
+### 📚 Notes RAG (Retrieval-Augmented Generation)
 
-v1.0.10
-* Ollama support + support for all LLM servers that support OpenAI API /v1/chat/completions endpoint.
-* Better prompts for available personas.
+Index your vault for semantic search and AI-powered Q&A:
 
-v1.0.9
-* Added personas to choose from - available in Settings menu (raise issue for new persona needs)
+- **Smart Chunking** - Documents split with overlap for better context
+- **Incremental Indexing** - Only re-indexes changed files
+- **Content Preprocessing** - Strips frontmatter and cleans markdown
+- **Multiple Providers** - Works with Ollama or OpenAI embeddings
 
-v1.0.8
-* Removed model name specification - it doesn't matter if you're using LMStudio.
-* You can now choose whether to replace or append to the selected text.
+![RAG Settings](assets/rag-settings.png)
 
-v1.0.7
-* Generate text button is updated to more meaningful text
-* Command palette can now be accessed to use all the functionalities that were present before.
+### 🌐 Web Integration
 
-v1.0.6
-* Custom prompt capability (enter your prompt in plugin Settings)
-* Generate action items - new prompt addition
-* Better status bar text updates
+- **Web Search** - Search the web using Brave API
+- **News Search** - Get recent news on any topic
 
-v1.0.5
-* Streaming capabilities (enable in plugin Settings)
-  
-v1.0.4
-* Summarize selected text in your Markdown notes.
-* Rephrase to make selected text sound professional
-* Generate text using selected text as prompt
-* Access various LLM functionalities through a ribbon icon.
+### 🎭 Personas
+
+Customize AI behavior with built-in personas:
+- Physics Expert
+- Fitness Coach
+- Software Developer
+- Philosopher
+- Teacher
+- Scientist
+- Creative Writer
+
+### ⚙️ Organized Settings
+
+Settings organized into clear sections:
+- Provider Configuration
+- Server Settings
+- Model Selection
+- RAG Configuration
+- Response Formatting
+- Custom Prompts
+- About & Changelog
+
+![Settings](assets/settings.png)
+
+### 🎯 Command Organization
+
+All commands use clear prefixes for easy discovery:
+- `Text:` - Text transformation commands
+- `Chat:` - Open chat interfaces
+- `Web:` - Web and news search
+- `Notes:` - RAG indexing and management
+- `Settings:` - Plugin configuration
 
 ## Installation
 
-Search for Local LLM Helper in Community plugins.
-Install the plugin and enable it, to use with your vault.
+### From Community Plugins (Recommended)
 
-## Usage
+1. Open Obsidian Settings → Community Plugins
+2. Click "Browse" and search for "Local LLM Helper"
+3. Install and enable the plugin
 
-1. Select the text you want to process in your Markdown note (make sure to visit Settings page to make sure everything looks alright).
-2. Click the plugin icon in the ribbon bar (brain icon) and choose the desired action.
-3. Use LLM Chat with side interactions.
+### Manual Installation
 
-## Configuration
+1. Download the latest release from [GitHub Releases](https://github.com/manimohans/obsidian-local-llm-helper/releases)
+2. Extract to your vault's `.obsidian/plugins/` folder
+3. Enable in Settings → Community Plugins
 
-The plugin settings allow you to specify the server address, port, and LLM model name used for processing. 
-The code currently supports all LLM servers that supports OpenAI API /v1/chat/completions endpoint.
+## Quick Start
 
-1. Go to Settings > Obsidian LLM Helper.
-2. Enter the details for your LLM server.
-3. Choose the appropriate LLM model name from your server (if needed).
-4. Select personas if needed.
-5. Change replace/append based on preference.
+### 1. Configure Your Provider
 
-**Note:** You'll need to set up and configure your own LLM server for this plugin to function.
+Go to Settings → Local LLM Helper and choose your provider:
 
-## Development
+**For Ollama:**
+- Server: `http://localhost:11434`
+- Model: `llama3.2` (or your preferred model)
+- Embedding Model: `mxbai-embed-large`
 
-Feel free to clone the repository and modify the code to suit your needs. The code utilizes the following Obsidian API elements:
+**For OpenAI:**
+- Server: `https://api.openai.com`
+- API Key: Your OpenAI API key
+- Model: `gpt-4` or `gpt-3.5-turbo`
 
-* `App`
-* `Editor`
-* `MarkdownView`
-* `Menu`
-* `Notice`
-* `Plugin`
-* `PluginSettingTab`
-* `Setting`
-* `View`
+**For LM Studio:**
+- Server: `http://localhost:1234`
+- Model: Leave blank (uses loaded model)
+
+### 2. Try Text Commands
+
+1. Select some text in a note
+2. Open Command Palette (`Cmd/Ctrl + P`)
+3. Type "Text:" to see available commands
+4. Choose an action like "Summarize" or "Make Professional"
+
+### 3. Index Your Notes
+
+1. Command Palette → "Notes: Index notes for RAG"
+2. Wait for indexing to complete
+3. Command Palette → "Chat: RAG Chat" to chat with your notes
+
+## Changelog
+
+### v2.3.1
+**New Features**
+- **Redesigned RAG Chat**: New interface with welcome message, example queries, and clickable sources
+- **Changelog in Settings**: View version history anytime from Settings → About
+
+**RAG Improvements**
+- Smarter chunking with overlap for better context preservation
+- Incremental indexing - only re-indexes changed files
+- Content preprocessing - strips frontmatter and cleans markdown
+- Better error messages when notes aren't indexed
+
+**UI/UX**
+- Commands organized with prefixes (Text:, Chat:, Web:, Notes:)
+- Ribbon menu grouped logically with separators
+- Settings page organized into 7 clear sections
+- All prompts improved for better LLM output
+- Persona prompts rewritten to be more actionable
+
+### v2.3.0
+- **Edit with Prompt**: Edit selected text with preset or custom prompts
+- **Security Updates**: Fixed dependency vulnerabilities
+- **Better Error Messages**: Clearer embedding failure messages
+
+### v2.2.1
+- Fixed re-embedding issue on every restart
+- Proper persistent storage for embeddings
+- Storage diagnostics command
+
+### v2.2.0
+- Multi-provider support (Ollama, OpenAI, LM Studio)
+- Easy provider switching in settings
+- Configurable temperature and max tokens
+
+<details>
+<summary>Older versions</summary>
+
+### v1.1.3
+- Chat history stored (3 previous exchanges)
+- Response formatting options
+
+### v1.1.1 - v1.1.2
+- LLM chat functionality with personas
+- Modern chat interface UI
+
+### v1.0.10
+- Ollama support
+- OpenAI API compatibility
+
+### v1.0.9
+- Added persona selection
+
+### v1.0.8
+- Replace/append output options
+
+### v1.0.7
+- Command palette integration
+
+### v1.0.6
+- Custom prompt capability
+- Action items generation
+
+### v1.0.5
+- Streaming output support
+
+### v1.0.4
+- Initial release with summarize, rephrase, and generate
+
+</details>
+
+## Requirements
+
+- Obsidian 1.7.0 or later
+- A running LLM server (Ollama, LM Studio, or OpenAI API key)
+
+## Support
+
+- [Report Issues](https://github.com/manimohans/obsidian-local-llm-helper/issues)
+- [Buy Me a Coffee](https://buymeacoffee.com/manee)
 
 ## License
 
-This plugin is distributed under the MIT license. See the LICENSE file for details.
+MIT License - see [LICENSE](LICENSE) for details.

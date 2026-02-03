@@ -2,16 +2,19 @@
 
 An Obsidian plugin that brings the power of local LLMs directly into your notes. Process text, chat with AI, search your vault semantically — all while keeping your data private and local.
 
-![Local LLM Helper](assets/hero.png)
+<p align="center">
+  <img src="assets/hero.png" width="600" alt="Local LLM Helper">
+</p>
 
 ## Features
 
 ### 🔌 Multi-Provider Support
 
-Works with your preferred LLM backend:
+Works with **any server that supports the OpenAI API format** (`/v1/chat/completions`):
 - **Ollama** - Run open-source models locally
 - **OpenAI** - Use GPT models with your API key
-- **LM Studio** - Local models with OpenAI-compatible API
+- **LM Studio** - Local inference with a GUI
+- **vLLM, LocalAI, text-generation-webui**, and more
 
 Switch providers anytime from settings. Configure temperature, max tokens, and streaming.
 
@@ -30,7 +33,7 @@ Transform selected text with AI-powered commands:
 
 All commands available via Command Palette (prefix: `Text:`) or ribbon menu.
 
-![Ribbon Menu](assets/ribbon-menu.png)
+<img src="assets/ribbon-menu.png" width="280" alt="Ribbon Menu">
 
 ### 💬 Chat Interfaces
 
@@ -43,7 +46,7 @@ All commands available via Command Palette (prefix: `Text:`) or ribbon menu.
 - Clickable source references
 - Example queries to get started
 
-![RAG Chat](assets/rag-chat.png)
+<img src="assets/rag-chat.png" width="500" alt="RAG Chat">
 
 ### 📚 Notes RAG (Retrieval-Augmented Generation)
 
@@ -52,9 +55,9 @@ Index your vault for semantic search and AI-powered Q&A:
 - **Smart Chunking** - Documents split with overlap for better context
 - **Incremental Indexing** - Only re-indexes changed files
 - **Content Preprocessing** - Strips frontmatter and cleans markdown
-- **Multiple Providers** - Works with Ollama or OpenAI embeddings
+- **Multiple Providers** - Works with any OpenAI-compatible embeddings endpoint
 
-![RAG Settings](assets/rag-settings.png)
+<img src="assets/rag-settings.png" width="600" alt="RAG Settings">
 
 ### 🌐 Web Integration
 
@@ -83,7 +86,7 @@ Settings organized into clear sections:
 - Custom Prompts
 - About & Changelog
 
-![Settings](assets/settings.png)
+<img src="assets/settings.png" width="600" alt="Settings">
 
 ### 🎯 Command Organization
 
@@ -215,7 +218,7 @@ Go to Settings → Local LLM Helper and choose your provider:
 ## Requirements
 
 - Obsidian 1.7.0 or later
-- A running LLM server (Ollama, LM Studio, or OpenAI API key)
+- Any LLM server with OpenAI-compatible API (Ollama, LM Studio, OpenAI, vLLM, etc.)
 
 ## Support
 

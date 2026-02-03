@@ -1,10 +1,8 @@
 import { Document } from 'langchain/document';
 import { MemoryVectorStore } from 'langchain/vectorstores/memory';
 import { TFile, Vault, Plugin } from 'obsidian';
-import { OllamaEmbeddings } from './ollamaEmbeddings';
 import { OpenAIEmbeddings } from './openAIEmbeddings';
-import { Ollama } from "@langchain/ollama";
-import { OpenAI } from "@langchain/openai";
+import { ChatOpenAI } from "@langchain/openai";
 import { createRetrievalChain } from "langchain/chains/retrieval";
 import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
 import { PromptTemplate } from "@langchain/core/prompts";
@@ -33,7 +31,7 @@ const CHUNK_SIZE = 1000;
 
 export class RAGManager {
 	private vectorStore: MemoryVectorStore;
-	private embeddings: OllamaEmbeddings | OpenAIEmbeddings;
+	private embeddings: OpenAIEmbeddings;
 	private indexedFiles: string[] = [];
 	private provider: string;
 	private isLoaded: boolean = false;
@@ -45,10 +43,13 @@ export class RAGManager {
 	) {
 		this.provider = this.settings.providerType || 'ollama';
 
-		// Initialize embeddings based on provider
-		this.embeddings = this.provider === 'ollama'
-			? new OllamaEmbeddings(this.settings.serverAddress, this.settings.embeddingModelName)
-			: new OpenAIEmbeddings(this.settings.openAIApiKey, this.settings.embeddingModelName, this.settings.serverAddress);
+		// Initialize embeddings using unified OpenAI-compatible client
+		// Works with Ollama, LM Studio, vLLM, OpenAI, and any OpenAI-compatible server
+		this.embeddings = new OpenAIEmbeddings(
+			this.settings.openAIApiKey || 'not-needed',
+			this.settings.embeddingModelName,
+			this.settings.serverAddress
+		);
 
 		this.vectorStore = new MemoryVectorStore(this.embeddings);
 	}
@@ -73,16 +74,18 @@ export class RAGManager {
 	updateSettings(settings: OLocalLLMSettings): void {
 		this.settings = settings;
 		this.provider = settings.providerType || 'ollama';
-		
-		// Reinitialize embeddings with new settings
-		this.embeddings = this.provider === 'ollama'
-			? new OllamaEmbeddings(settings.serverAddress, settings.embeddingModelName)
-			: new OpenAIEmbeddings(settings.openAIApiKey, settings.embeddingModelName, settings.serverAddress);
-		
+
+		// Reinitialize embeddings with new settings (unified OpenAI-compatible client)
+		this.embeddings = new OpenAIEmbeddings(
+			settings.openAIApiKey || 'not-needed',
+			settings.embeddingModelName,
+			settings.serverAddress
+		);
+
 		// Update vector store with new embeddings
 		this.vectorStore = new MemoryVectorStore(this.embeddings);
-		
-		console.log(`RAGManager settings updated - Provider: ${this.provider}, Model: ${settings.embeddingModelName}`);
+
+		console.log(`RAGManager settings updated - Server: ${settings.serverAddress}, Embedding Model: ${settings.embeddingModelName}`);
 	}
 
 	async getRAGResponse(query: string): Promise<{ response: string, sources: string[] }> {
@@ -90,21 +93,20 @@ export class RAGManager {
 			const docs = await this.vectorStore.similaritySearch(query, 4);
 			if (docs.length === 0) throw new Error("No relevant documents found");
 
-			// Initialize LLM based on provider
-			const llm = this.provider === 'ollama'
-				? new Ollama({
-					baseUrl: this.settings.serverAddress,
-					model: this.settings.llmModel,
-					temperature: this.settings.temperature,
-				})
-				: new OpenAI({
-					openAIApiKey: this.settings.openAIApiKey || 'lm-studio',
-					modelName: this.settings.llmModel,
-					temperature: this.settings.temperature,
-					configuration: {
-						baseURL: `${this.settings.serverAddress}/v1`,
-					},
-				});
+			// Initialize LLM using unified OpenAI-compatible client
+			// Works with Ollama, LM Studio, vLLM, OpenAI, and any OpenAI-compatible server
+			const baseURL = this.settings.serverAddress.endsWith('/v1')
+				? this.settings.serverAddress
+				: `${this.settings.serverAddress}/v1`;
+
+			const llm = new ChatOpenAI({
+				openAIApiKey: this.settings.openAIApiKey || 'not-needed',
+				modelName: this.settings.llmModel,
+				temperature: this.settings.temperature,
+				configuration: {
+					baseURL: baseURL,
+				},
+			});
 
 			const promptTemplate = PromptTemplate.fromTemplate(
 				`Answer the following question based on the context:\n\nContext: {context}\nQuestion: {input}\nAnswer:`

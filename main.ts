@@ -471,32 +471,18 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	private validateServerConfiguration(): boolean {
-		const provider = this.settings.providerType;
 		const serverAddress = this.settings.serverAddress;
+		const llmModel = this.settings.llmModel;
 		const embeddingModel = this.settings.embeddingModelName;
-		
-		console.log(`Validating configuration - Provider: ${provider}, Server: ${serverAddress}, Embedding Model: ${embeddingModel}`);
-		
-		if (provider === 'ollama') {
-			// Ollama typically runs on port 11434
-			if (!serverAddress.includes('11434') && !serverAddress.includes('ollama')) {
-				console.warn('Ollama provider detected but server address might be incorrect. Ollama typically runs on port 11434.');
-				return false;
-			}
-			
-			// Check for common embedding models
-			const commonOllamaModels = ['mxbai-embed-large', 'nomic-embed-text', 'all-minilm'];
-			if (!commonOllamaModels.some(model => embeddingModel.includes(model))) {
-				console.warn(`Embedding model "${embeddingModel}" might not be compatible with Ollama. Common models: ${commonOllamaModels.join(', ')}`);
-			}
-		} else if (provider === 'openai' || provider === 'lm-studio') {
-			// LM Studio typically runs on port 1234
-			if (!serverAddress.includes('1234') && !serverAddress.includes('openai')) {
-				console.warn('OpenAI/LM Studio provider detected but server address might be incorrect. LM Studio typically runs on port 1234.');
-				return false;
-			}
+
+		console.log(`Configuration - Server: ${serverAddress}, LLM: ${llmModel}, Embeddings: ${embeddingModel}`);
+		console.log('Using OpenAI-compatible API endpoints (/v1/chat/completions, /v1/embeddings)');
+
+		if (!serverAddress || serverAddress.trim() === '') {
+			console.warn('Server address is not configured.');
+			return false;
 		}
-		
+
 		return true;
 	}
 
@@ -652,10 +638,21 @@ class OLLMSettingTab extends PluginSettingTab {
 	plugin: OLocalLLMPlugin;
 	private indexingProgressBar: HTMLProgressElement | null = null;
 	private indexedFilesCountSetting: Setting | null = null;
+	private saveTimeout: NodeJS.Timeout | null = null;
 
 	constructor(app: App, plugin: OLocalLLMPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	// Debounced save to prevent lag when typing
+	private debouncedSave() {
+		if (this.saveTimeout) {
+			clearTimeout(this.saveTimeout);
+		}
+		this.saveTimeout = setTimeout(() => {
+			this.plugin.saveSettings();
+		}, 500);
 	}
 
 	display(): void {
@@ -663,17 +660,23 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		// In the OLLMSettingTab class's display() method, add these new settings:
+		// Provider selection - all use OpenAI-compatible API
 		new Setting(containerEl)
 			.setName("LLM Provider")
-			.setDesc("Choose between Ollama and OpenAI-compatible providers")
+			.setDesc("Select your provider. All use OpenAI-compatible API format (/v1/chat/completions, /v1/embeddings).")
 			.addDropdown(dropdown =>
 				dropdown
 					.addOption('ollama', 'Ollama')
-					.addOption('openai', 'OpenAI/LM Studio')
+					.addOption('openai', 'OpenAI / LM Studio / vLLM')
 					.setValue(this.plugin.settings.providerType)
 					.onChange(async (value: 'ollama' | 'openai') => {
 						this.plugin.settings.providerType = value;
+						// Update default URL based on provider
+						if (value === 'ollama' && this.plugin.settings.serverAddress.includes('1234')) {
+							this.plugin.settings.serverAddress = 'http://localhost:11434';
+						} else if (value === 'openai' && this.plugin.settings.serverAddress.includes('11434')) {
+							this.plugin.settings.serverAddress = 'http://localhost:1234';
+						}
 						await this.plugin.saveSettings();
 						this.display(); // Refresh settings UI
 					})
@@ -681,27 +684,27 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Server URL")
-			.setDesc("Full server URL (including protocol and port if needed). E.g., http://localhost:1234 or https://api.example.com")
+			.setDesc("Ollama: http://localhost:11434 | LM Studio: http://localhost:1234 | vLLM: http://localhost:8000")
 			.addText((text) =>
 				text
-					.setPlaceholder("Enter full server URL")
+					.setPlaceholder("http://localhost:11434")
 					.setValue(this.plugin.settings.serverAddress)
-					.onChange(async (value) => {
+					.onChange((value) => {
 						this.plugin.settings.serverAddress = value;
-						await this.plugin.saveSettings();
+						this.debouncedSave();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("LLM model")
-			.setDesc("Use this for Ollama and other servers that require this. LMStudio seems to ignore model name.")
+			.setName("LLM Model")
+			.setDesc("Model name for chat completions (e.g., llama3, gpt-4, mistral)")
 			.addText((text) =>
 				text
 					.setPlaceholder("Model name")
 					.setValue(this.plugin.settings.llmModel)
-					.onChange(async (value) => {
+					.onChange((value) => {
 						this.plugin.settings.llmModel = value;
-						await this.plugin.saveSettings();
+						this.debouncedSave();
 					})
 			);
 
@@ -714,9 +717,9 @@ class OLLMSettingTab extends PluginSettingTab {
 						"create action items from the following text:"
 					)
 					.setValue(this.plugin.settings.customPrompt)
-					.onChange(async (value) => {
+					.onChange((value) => {
 						this.plugin.settings.customPrompt = value;
-						await this.plugin.saveSettings();
+						this.debouncedSave();
 					})
 			);
 
@@ -771,11 +774,11 @@ class OLLMSettingTab extends PluginSettingTab {
 				text
 					.setPlaceholder("1024")
 					.setValue(this.plugin.settings.maxTokens.toString())
-					.onChange(async (value) => {
+					.onChange((value) => {
 						const parsedValue = parseInt(value);
 						if (!isNaN(parsedValue) && parsedValue >= 0) {
 							this.plugin.settings.maxTokens = parsedValue;
-							await this.plugin.saveSettings();
+							this.debouncedSave();
 						}
 					})
 			);
@@ -787,11 +790,11 @@ class OLLMSettingTab extends PluginSettingTab {
 				text
 					.setPlaceholder("0.7")
 					.setValue(this.plugin.settings.temperature.toString())
-					.onChange(async (value) => {
+					.onChange((value) => {
 						const parsedValue = parseFloat(value);
 						if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue <= 1) {
 							this.plugin.settings.temperature = parsedValue;
-							await this.plugin.saveSettings();
+							this.debouncedSave();
 						}
 					})
 			);
@@ -837,9 +840,9 @@ class OLLMSettingTab extends PluginSettingTab {
 					text
 						.setPlaceholder("``` LLM Helper - generated response \n\n")
 						.setValue(this.plugin.settings.responseFormatPrepend)
-						.onChange(async (value) => {
+						.onChange((value) => {
 							this.plugin.settings.responseFormatPrepend = value;
-							await this.plugin.saveSettings();
+							this.debouncedSave();
 						})
 				);
 
@@ -850,23 +853,23 @@ class OLLMSettingTab extends PluginSettingTab {
 					text
 						.setPlaceholder("\n\n```")
 						.setValue(this.plugin.settings.responseFormatAppend)
-						.onChange(async (value) => {
+						.onChange((value) => {
 							this.plugin.settings.responseFormatAppend = value;
-							await this.plugin.saveSettings();
+							this.debouncedSave();
 						})
 				);
 		}
 
 		new Setting(containerEl)
-			.setName("Embedding Model Name")
-			.setDesc("Model for text embeddings. For Ollama: mxbai-embed-large, nomic-embed-text, all-minilm. Install with 'ollama pull <model>'")
+			.setName("Embedding Model")
+			.setDesc("Model for RAG embeddings. Ollama: nomic-embed-text, mxbai-embed-large | OpenAI: text-embedding-ada-002")
 			.addText((text) =>
 				text
 					.setPlaceholder("mxbai-embed-large")
 					.setValue(this.plugin.settings.embeddingModelName)
-					.onChange(async (value) => {
+					.onChange((value) => {
 						this.plugin.settings.embeddingModelName = value;
-						await this.plugin.saveSettings();
+						this.debouncedSave();
 					})
 			);
 
@@ -877,9 +880,9 @@ class OLLMSettingTab extends PluginSettingTab {
 				text
 					.setPlaceholder("Enter your Brave Search API key")
 					.setValue(this.plugin.settings.braveSearchApiKey)
-					.onChange(async (value) => {
+					.onChange((value) => {
 						this.plugin.settings.braveSearchApiKey = value;
-						await this.plugin.saveSettings();
+						this.debouncedSave();
 					})
 			);
 
@@ -887,13 +890,13 @@ class OLLMSettingTab extends PluginSettingTab {
 		if (this.plugin.settings.providerType === 'openai') {
 			new Setting(containerEl)
 				.setName("OpenAI API Key")
-				.setDesc("Required for OpenAI/LM Studio (use 'lm-studio' for local instances)")
+				.setDesc("Required for OpenAI. For local servers (LM Studio, vLLM), leave as 'not-needed'")
 				.addText(text => text
-					.setPlaceholder("Enter your API key")
+					.setPlaceholder("not-needed")
 					.setValue(this.plugin.settings.openAIApiKey || '')
-					.onChange(async (value) => {
+					.onChange((value) => {
 						this.plugin.settings.openAIApiKey = value;
-						await this.plugin.saveSettings();
+						this.debouncedSave();
 					})
 				);
 		}
@@ -960,9 +963,9 @@ class OLLMSettingTab extends PluginSettingTab {
 					await this.plugin.handleDiagnostics();
 				}));
 
-		// Add note about persistent storage
+		// Add note about API compatibility
 		containerEl.createEl("p", {
-			text: "Note: Embeddings are now stored persistently and will be automatically loaded when Obsidian restarts. Embeddings will be rebuilt if you change the provider, model, or server settings.",
+			text: "Note: This plugin uses OpenAI-compatible API endpoints (/v1/chat/completions, /v1/embeddings). Works with Ollama, LM Studio, vLLM, OpenAI, and any OpenAI-compatible server.",
 			cls: "setting-item-description"
 		});
 	}

@@ -3,6 +3,19 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.3.2",
+		date: "2025-02",
+		changes: `
+**Bug Fixes**
+- Fixed embedding model changes not taking effect until plugin restart
+- Fixed settings not saving when closing settings tab quickly
+
+**New**
+- Tavily search provider support (alternative to Brave)
+- Search provider picker in settings
+`,
+	},
+	{
 		version: "2.3.1",
 		date: "2024-02",
 		changes: `

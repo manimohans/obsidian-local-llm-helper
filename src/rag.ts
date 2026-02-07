@@ -91,12 +91,15 @@ export class RAGManager {
 		this.settings = settings;
 		this.provider = settings.providerType || 'ollama';
 
-		// Only reinitialize embeddings client, preserve vector store data
+		// Reinitialize embeddings client
 		this.embeddings = new OpenAIEmbeddings(
 			settings.openAIApiKey || 'not-needed',
 			settings.embeddingModelName,
 			settings.serverAddress
 		);
+
+		// Update the vector store's embeddings reference so new indexing uses the current model
+		(this.vectorStore as any).embeddings = this.embeddings;
 
 		// Only warn if embedding-related settings changed
 		if (modelChanged || serverChanged) {

@@ -41,6 +41,8 @@ export interface OLocalLLMSettings {
 	embeddingModelName: string;
 	braveSearchApiKey: string;
 	openAIApiKey?: string;
+	searchProvider: string;
+	tavilyApiKey: string;
 }
 
 interface ConversationEntry {
@@ -65,7 +67,9 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	lastVersion: "0.0.0",
 	embeddingModelName: "mxbai-embed-large",
 	braveSearchApiKey: "",
-	openAIApiKey: "lm-studio"
+	openAIApiKey: "lm-studio",
+	searchProvider: "tavily",
+	tavilyApiKey: ""
 };
 
 const personasDict: { [key: string]: string } = {
@@ -671,6 +675,15 @@ class OLLMSettingTab extends PluginSettingTab {
 		}, 500);
 	}
 
+	// Flush any pending debounced save when settings tab is closed
+	hide() {
+		if (this.saveTimeout) {
+			clearTimeout(this.saveTimeout);
+			this.saveTimeout = null;
+			this.plugin.saveSettings();
+		}
+	}
+
 	display(): void {
 		const { containerEl } = this;
 
@@ -988,18 +1001,55 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		containerEl.createEl("h3", { text: "Integrations" });
 
+		const searchApiKeyContainer = containerEl.createDiv();
+
+		const renderSearchApiKey = () => {
+			searchApiKeyContainer.empty();
+			if (this.plugin.settings.searchProvider === "brave") {
+				new Setting(searchApiKeyContainer)
+					.setName("Brave Search API key")
+					.setDesc("Required for web search features")
+					.addText((text) =>
+						text
+							.setPlaceholder("Enter API key")
+							.setValue(this.plugin.settings.braveSearchApiKey)
+							.onChange((value) => {
+								this.plugin.settings.braveSearchApiKey = value;
+								this.debouncedSave();
+							})
+					);
+			} else {
+				new Setting(searchApiKeyContainer)
+					.setName("Tavily API key")
+					.setDesc("Required for web search features (tavily.com)")
+					.addText((text) =>
+						text
+							.setPlaceholder("Enter API key")
+							.setValue(this.plugin.settings.tavilyApiKey)
+							.onChange((value) => {
+								this.plugin.settings.tavilyApiKey = value;
+								this.debouncedSave();
+							})
+					);
+			}
+		};
+
 		new Setting(containerEl)
-			.setName("Brave Search API key")
-			.setDesc("Required for web search features")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter API key")
-					.setValue(this.plugin.settings.braveSearchApiKey)
+			.setName("Search provider")
+			.setDesc("Choose which search API to use for web and news search")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("tavily", "Tavily")
+					.addOption("brave", "Brave")
+					.setValue(this.plugin.settings.searchProvider)
 					.onChange((value) => {
-						this.plugin.settings.braveSearchApiKey = value;
+						this.plugin.settings.searchProvider = value;
 						this.debouncedSave();
+						renderSearchApiKey();
 					})
 			);
+
+		renderSearchApiKey();
 
 		// ═══════════════════════════════════════════════════════════
 		// ABOUT
@@ -1513,8 +1563,46 @@ function updateConversationHistory(prompt: string, response: string, conversatio
 
 //TODO: kill switch
 
+async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugin): Promise<string> {
+	const body: any = {
+		query,
+		topic,
+		max_results: 5,
+		search_depth: "basic",
+		include_answer: false,
+	};
+	if (topic === "news") {
+		body.time_range = "day";
+	}
+
+	const response = await requestUrl({
+		url: "https://api.tavily.com/search",
+		method: "POST",
+		headers: {
+			"Authorization": `Bearer ${plugin.settings.tavilyApiKey}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(body),
+	});
+
+	if (response.status !== 200) {
+		throw new Error("Tavily search failed: " + response.status);
+	}
+
+	const results = response.json.results;
+	return results.map((result: any) =>
+		`${result.title}\n${result.content}\nSource: ${result.url}\n\n`
+	).join('');
+}
+
 async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
-	if (!plugin.settings.braveSearchApiKey) {
+	const provider = plugin.settings.searchProvider;
+
+	if (provider === "tavily" && !plugin.settings.tavilyApiKey) {
+		new Notice("Please set your Tavily API key in settings");
+		return;
+	}
+	if (provider === "brave" && !plugin.settings.braveSearchApiKey) {
 		new Notice("Please set your Brave Search API key in settings");
 		return;
 	}
@@ -1522,30 +1610,36 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 	new Notice("Searching the web...");
 
 	try {
-		const response = await requestUrl({
-			url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
-			method: "GET",
-			headers: {
-				"Accept": "application/json",
-				"Accept-Encoding": "gzip",
-				"X-Subscription-Token": plugin.settings.braveSearchApiKey,
-			}
-		});
+		let context: string;
 
-		if (response.status !== 200) {
-			throw new Error("Search failed: " + response.status);
+		if (provider === "tavily") {
+			context = await tavilySearch(query, "general", plugin);
+		} else {
+			const response = await requestUrl({
+				url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
+				method: "GET",
+				headers: {
+					"Accept": "application/json",
+					"Accept-Encoding": "gzip",
+					"X-Subscription-Token": plugin.settings.braveSearchApiKey,
+				}
+			});
+
+			if (response.status !== 200) {
+				throw new Error("Search failed: " + response.status);
+			}
+
+			const searchResults = response.json.web.results;
+			context = searchResults.map((result: any) => {
+				let snippets = result.extra_snippets ?
+					'\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
+				return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
+			}).join('');
 		}
 
-		const searchResults = response.json.web.results;
-		const context = searchResults.map((result: any) => {
-			let snippets = result.extra_snippets ?
-				'\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
-			return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
-		}).join('');
-
 		processText(
-			`Based on these comprehensive search results about "${query}":\n\n${context}`,
-			"You are a helpful assistant. Analyze these detailed search results and provide a thorough, well-structured response. Include relevant source citations and consider multiple perspectives if available.",
+			`Search results for "${query}":\n\n${context}`,
+			"Summarize these search results concisely. Use bullet points for key facts and cite sources inline as [Source](url).",
 			plugin
 		);
 
@@ -1556,29 +1650,48 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 }
 
 async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
-	try {
-		const response = await requestUrl({
-			url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
-			method: "GET",
-			headers: {
-				"Accept": "application/json",
-				"Accept-Encoding": "gzip",
-				"X-Subscription-Token": plugin.settings.braveSearchApiKey,
-			}
-		});
+	const provider = plugin.settings.searchProvider;
 
-		if (response.status !== 200) {
-			throw new Error("News search failed: " + response.status);
+	if (provider === "tavily" && !plugin.settings.tavilyApiKey) {
+		new Notice("Please set your Tavily API key in settings");
+		return;
+	}
+	if (provider === "brave" && !plugin.settings.braveSearchApiKey) {
+		new Notice("Please set your Brave Search API key in settings");
+		return;
+	}
+
+	new Notice("Searching for news...");
+
+	try {
+		let context: string;
+
+		if (provider === "tavily") {
+			context = await tavilySearch(query, "news", plugin);
+		} else {
+			const response = await requestUrl({
+				url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
+				method: "GET",
+				headers: {
+					"Accept": "application/json",
+					"Accept-Encoding": "gzip",
+					"X-Subscription-Token": plugin.settings.braveSearchApiKey,
+				}
+			});
+
+			if (response.status !== 200) {
+				throw new Error("News search failed: " + response.status);
+			}
+
+			const newsResults = response.json.results;
+			context = newsResults.map((result: any) =>
+				`${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
+			).join('');
 		}
 
-		const newsResults = response.json.results;
-		const context = newsResults.map((result: any) =>
-			`${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
-		).join('');
-
 		processText(
-			`Based on these news results about "${query}":\n\n${context}`,
-			"Analyze these news results and provide a comprehensive summary with key points and timeline. Include source citations.",
+			`News results for "${query}":\n\n${context}`,
+			"Summarize these news results concisely. List key developments as bullet points and cite sources inline as [Source](url).",
 			plugin
 		);
 	} catch (error) {

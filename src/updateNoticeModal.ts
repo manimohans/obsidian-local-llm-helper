@@ -3,6 +3,18 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.3.3",
+		date: "2025-02",
+		changes: `
+**Bug Fixes**
+- Fixed API key not being sent in chat requests (streaming, non-streaming, and chat modal)
+- Better error messages for authentication failures (401)
+
+**Improvements**
+- Added CORS note to streaming setting description
+`,
+	},
+	{
 		version: "2.3.2",
 		date: "2025-02",
 		changes: `

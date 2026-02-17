@@ -848,7 +848,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Streaming")
-			.setDesc("Show response word by word as it generates")
+			.setDesc("Show response word by word as it generates. Your server must have CORS enabled for streaming to work.")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.stream)
@@ -1155,16 +1155,23 @@ async function processText(
 			modifySelectedText(plugin.settings.responseFormatPrepend);
 		}
 		if (plugin.settings.stream) {
+			const streamHeaders: Record<string, string> = { "Content-Type": "application/json" };
+			if (plugin.settings.openAIApiKey && plugin.settings.openAIApiKey !== "not-needed") {
+				streamHeaders["Authorization"] = `Bearer ${plugin.settings.openAIApiKey}`;
+			}
 			const response = await fetch(
 				`${plugin.settings.serverAddress}/v1/chat/completions`,
 				{
 					method: "POST",
-					headers: { "Content-Type": "application/json" },
+					headers: streamHeaders,
 					body: JSON.stringify(body),
 				}
 			);
 
 			if (!response.ok) {
+				if (response.status === 401) {
+					throw new Error("Authentication failed (401). Check your API key in plugin settings.");
+				}
 				throw new Error(
 					"Error summarizing text (Fetch): " + response.statusText
 				);
@@ -1228,10 +1235,14 @@ async function processText(
 				readChunk();
 			}
 		} else {
+			const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
+			if (plugin.settings.openAIApiKey && plugin.settings.openAIApiKey !== "not-needed") {
+				reqHeaders["Authorization"] = `Bearer ${plugin.settings.openAIApiKey}`;
+			}
 			const response = await requestUrl({
 				url: `${plugin.settings.serverAddress}/v1/chat/completions`,
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: reqHeaders,
 				body: JSON.stringify(body),
 			});
 
@@ -1261,9 +1272,12 @@ async function processText(
 		}
 	} catch (error) {
 		console.error("Error during request:", error);
-		new Notice(
-			"Error summarizing text: Check plugin console for more details!"
-		);
+		const errMsg = error instanceof Error ? error.message : String(error);
+		if (errMsg.includes("401") || errMsg.toLowerCase().includes("unauthorized")) {
+			new Notice("Authentication failed (401). Check your API key in plugin settings.");
+		} else {
+			new Notice("Error generating text. Check plugin console for details.");
+		}
 	}
 	if (statusBarItemEl) {
 		statusBarItemEl.textContent = "LLM Helper: Ready";
@@ -1446,10 +1460,14 @@ async function processChatInput(text: string, personas: string, chatContainer: H
 			stream: false, // Set to false for chat window
 		};
 
+		const chatHeaders: Record<string, string> = { "Content-Type": "application/json" };
+		if (pluginSettings.openAIApiKey && pluginSettings.openAIApiKey !== "not-needed") {
+			chatHeaders["Authorization"] = `Bearer ${pluginSettings.openAIApiKey}`;
+		}
 		const response = await requestUrl({
 			url: `${pluginSettings.serverAddress}/v1/chat/completions`,
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: chatHeaders,
 			body: JSON.stringify(body),
 		});
 
@@ -1506,9 +1524,12 @@ async function processChatInput(text: string, personas: string, chatContainer: H
 		}
 	} catch (error) {
 		console.error("Error during request:", error);
-		new Notice(
-			"Error communicating with LLM Helper: Check plugin console for details!"
-		);
+		const errMsg = error instanceof Error ? error.message : String(error);
+		if (errMsg.includes("401") || errMsg.toLowerCase().includes("unauthorized")) {
+			new Notice("Authentication failed (401). Check your API key in plugin settings.");
+		} else {
+			new Notice("Error communicating with LLM server. Check plugin console for details.");
+		}
 		hideThinkingIndicator(chatHistoryEl);
 	}
 

@@ -27,7 +27,8 @@ Transform selected text with AI-powered commands:
 | **Summarize** | Condense text while preserving key information |
 | **Make Professional** | Rewrite in a formal, polished tone |
 | **Generate Action Items** | Extract actionable tasks from text |
-| **Custom Prompt** | Use your own saved prompt |
+| **Custom Prompt** | Run your single saved custom prompt |
+| **Run Saved Prompt...** | Fuzzy-search and run any of your saved prompts |
 | **Use as Prompt** | Send selection directly to LLM |
 | **Edit with Prompt** | Choose from 8 presets or write custom instructions |
 
@@ -61,29 +62,51 @@ Index your vault for semantic search and AI-powered Q&A:
 
 ### 🌐 Web Integration
 
-- **Web Search** - Search the web using Brave API
+- **Web Search** - Search the web using Tavily or Brave API
 - **News Search** - Get recent news on any topic
 
 ### 🎭 Personas
 
-Customize AI behavior with built-in personas:
-- Physics Expert
-- Fitness Coach
-- Software Developer
-- Philosopher
-- Teacher
-- Scientist
-- Creative Writer
+Customize AI behavior with 12 built-in personas — or create your own:
+- Software Developer, Physics Expert, Fitness Expert, Stoic Philosopher
+- Product Manager, Technical Writer, Creative Writer
+- TPM, Engineering Manager, Executive, Office Assistant
+
+**Edit any persona's system prompt** directly in settings. Create custom personas with your own name and instructions. Restore defaults anytime.
+
+### 📋 Saved Prompts
+
+Save frequently-used prompts and run them instantly:
+- Each saved prompt registers as a **command in the palette** — assign hotkeys to your favorites
+- **Fuzzy search picker** to quickly find and run any saved prompt
+- Full CRUD in settings: create, edit, rename, delete
+- Existing single "Custom Prompt" field still works alongside saved prompts
+
+### 🧠 Reasoning Extraction
+
+Models like **DeepSeek** and **Qwen** wrap their thinking process in `<think>` blocks. Enable reasoning extraction to automatically strip these from output:
+- Strips `<think>`, `<reasoning>`, and `<thought>` blocks by default
+- Configurable markers via JSON for custom formats
+- Applied to text commands, chat, and RAG responses
+
+### 🔍 Model Picker
+
+Browse available models directly from your server:
+- **Browse button** next to Chat and Embedding model fields
+- Fetches from `/v1/models` endpoint (works with Ollama, LM Studio, vLLM, and others)
+- Searchable picker modal — no more guessing model names
+- Manual text entry always available as fallback
 
 ### ⚙️ Organized Settings
 
 Settings organized into clear sections:
-- Provider Configuration
-- Server Settings
-- Model Selection
-- RAG Configuration
-- Response Formatting
-- Custom Prompts
+- Connection & Provider
+- Models (with Browse)
+- Chat & Personas
+- Output & Reasoning
+- Custom Prompt & Saved Prompts
+- Notes Index (RAG)
+- Integrations
 - About & Changelog
 
 <img src="assets/settings.png" width="600" alt="Settings">
@@ -92,6 +115,7 @@ Settings organized into clear sections:
 
 All commands use clear prefixes for easy discovery:
 - `Text:` - Text transformation commands
+- `Prompt:` - Your saved custom prompts (hotkey-assignable)
 - `Chat:` - Open chat interfaces
 - `Web:` - Web and news search
 - `Notes:` - RAG indexing and management
@@ -119,7 +143,7 @@ Go to Settings → Local LLM Helper and choose your provider:
 
 **For Ollama:**
 - Server: `http://localhost:11434`
-- Model: `llama3.2` (or your preferred model)
+- Model: Click **Browse** to pick from available models, or type `llama3.2`
 - Embedding Model: `mxbai-embed-large`
 
 **For OpenAI:**
@@ -129,7 +153,7 @@ Go to Settings → Local LLM Helper and choose your provider:
 
 **For LM Studio:**
 - Server: `http://localhost:1234`
-- Model: Leave blank (uses loaded model)
+- Model: Click **Browse** to see loaded models, or leave blank for default
 
 ### 2. Try Text Commands
 
@@ -145,6 +169,32 @@ Go to Settings → Local LLM Helper and choose your provider:
 3. Command Palette → "Chat: RAG Chat" to chat with your notes
 
 ## Changelog
+
+### v2.4.0
+
+**Saved Prompts**
+- Save frequently-used prompts with title and text
+- Each saved prompt registers as a command — assign hotkeys to your favorites
+- Fuzzy-searchable picker modal (`Text: Run saved prompt...`)
+- Full CRUD in settings: create, edit, rename, delete
+
+**Persona Editing**
+- View and edit any persona's system prompt in settings
+- Create fully custom personas with your own name and instructions
+- Delete custom personas, restore all defaults with one click
+- Same backward-compatible persona keys — existing settings just work
+
+**Reasoning Extraction**
+- Toggle to strip `<think>`, `<reasoning>`, `<thought>` blocks from LLM output
+- Useful for DeepSeek, Qwen, and other models that expose chain-of-thought
+- Configurable markers via JSON for custom formats
+- Applied to text commands, general chat, and RAG chat
+
+**Model Picker**
+- Browse button next to Chat and Embedding model fields
+- Fetches available models from your server's `/v1/models` endpoint
+- Searchable picker modal — works with Ollama, LM Studio, vLLM, and others
+- Manual text entry always available as fallback
 
 ### v2.3.1
 **New Features**

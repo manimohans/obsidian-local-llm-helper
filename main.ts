@@ -8,6 +8,7 @@ import {
 	Plugin,
 	PluginSettingTab,
 	Setting,
+	SuggestModal,
 	View,
 	requestUrl,
 	setIcon,
@@ -745,6 +746,55 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 }
 
+async function fetchAvailableModels(settings: OLocalLLMSettings): Promise<string[]> {
+	const headers: Record<string, string> = { "Content-Type": "application/json" };
+	if (settings.openAIApiKey && settings.openAIApiKey !== "not-needed") {
+		headers["Authorization"] = `Bearer ${settings.openAIApiKey}`;
+	}
+
+	const response = await requestUrl({
+		url: `${settings.serverAddress}/v1/models`,
+		method: "GET",
+		headers,
+	});
+
+	if (response.status < 200 || response.status >= 300) {
+		throw new Error(`Server returned ${response.status}`);
+	}
+
+	const data = response.json;
+	if (!data?.data || !Array.isArray(data.data)) {
+		throw new Error("Unexpected response format");
+	}
+
+	return data.data.map((m: any) => m.id).filter(Boolean).sort();
+}
+
+class ModelPickerModal extends SuggestModal<string> {
+	private models: string[];
+	private onChoose: (model: string) => void;
+
+	constructor(app: App, models: string[], onChoose: (model: string) => void) {
+		super(app);
+		this.models = models;
+		this.onChoose = onChoose;
+		this.setPlaceholder("Search models...");
+	}
+
+	getSuggestions(query: string): string[] {
+		const lower = query.toLowerCase();
+		return this.models.filter(m => m.toLowerCase().includes(lower));
+	}
+
+	renderSuggestion(model: string, el: HTMLElement) {
+		el.createEl("div", { text: model });
+	}
+
+	onChooseSuggestion(model: string) {
+		this.onChoose(model);
+	}
+}
+
 class OLLMSettingTab extends PluginSettingTab {
 	plugin: OLocalLLMPlugin;
 	private indexingProgressBar: HTMLProgressElement | null = null;
@@ -837,31 +887,83 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		containerEl.createEl("h3", { text: "Models" });
 
+		let chatModelText: TextComponent;
 		new Setting(containerEl)
 			.setName("Chat model")
-			.setDesc("Model for chat and text processing (e.g., llama3, gpt-4, mistral)")
-			.addText((text) =>
+			.setDesc("Model for chat and text processing — type a name or browse from server")
+			.addText((text) => {
+				chatModelText = text;
 				text
 					.setPlaceholder("llama3")
 					.setValue(this.plugin.settings.llmModel)
 					.onChange((value) => {
 						this.plugin.settings.llmModel = value;
 						this.debouncedSave();
-					})
-			);
+					});
+			})
+			.addButton(btn => btn
+				.setButtonText("Browse")
+				.onClick(async () => {
+					try {
+						btn.setDisabled(true);
+						btn.setButtonText("Loading...");
+						const models = await fetchAvailableModels(this.plugin.settings);
+						if (models.length === 0) {
+							new Notice("No models found on server");
+							return;
+						}
+						new ModelPickerModal(this.app, models, (model) => {
+							this.plugin.settings.llmModel = model;
+							chatModelText.setValue(model);
+							this.plugin.saveSettings();
+						}).open();
+					} catch (e) {
+						console.error("Failed to fetch models:", e);
+						new Notice("Could not fetch models. Check server URL and connection.");
+					} finally {
+						btn.setDisabled(false);
+						btn.setButtonText("Browse");
+					}
+				}));
 
+		let embeddingModelText: TextComponent;
 		new Setting(containerEl)
 			.setName("Embedding model")
-			.setDesc("Model for RAG indexing (e.g., nomic-embed-text, mxbai-embed-large)")
-			.addText((text) =>
+			.setDesc("Model for RAG indexing — type a name or browse from server")
+			.addText((text) => {
+				embeddingModelText = text;
 				text
 					.setPlaceholder("mxbai-embed-large")
 					.setValue(this.plugin.settings.embeddingModelName)
 					.onChange((value) => {
 						this.plugin.settings.embeddingModelName = value;
 						this.debouncedSave();
-					})
-			);
+					});
+			})
+			.addButton(btn => btn
+				.setButtonText("Browse")
+				.onClick(async () => {
+					try {
+						btn.setDisabled(true);
+						btn.setButtonText("Loading...");
+						const models = await fetchAvailableModels(this.plugin.settings);
+						if (models.length === 0) {
+							new Notice("No models found on server");
+							return;
+						}
+						new ModelPickerModal(this.app, models, (model) => {
+							this.plugin.settings.embeddingModelName = model;
+							embeddingModelText.setValue(model);
+							this.plugin.saveSettings();
+						}).open();
+					} catch (e) {
+						console.error("Failed to fetch models:", e);
+						new Notice("Could not fetch models. Check server URL and connection.");
+					} finally {
+						btn.setDisabled(false);
+						btn.setButtonText("Browse");
+					}
+				}));
 
 		new Setting(containerEl)
 			.setName("Temperature")

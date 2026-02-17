@@ -20,6 +20,9 @@ import { RAGManager } from './src/rag';
 import { BacklinkGenerator } from './src/backlinkGenerator';
 import { RAGChatModal } from './src/ragChatModal';
 import { PromptPickerModal } from './src/promptPickerModal';
+import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict, modifyPrompt } from './src/personas';
+import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customPrompts';
+import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
 
 // Remember to rename these classes and interfaces!
 
@@ -43,6 +46,10 @@ export interface OLocalLLMSettings {
 	openAIApiKey?: string;
 	searchProvider: string;
 	tavilyApiKey: string;
+	savedPersonas?: { [key: string]: Persona };
+	customPrompts?: CustomPrompt[];
+	extractReasoningResponses?: boolean;
+	reasoningMarkers?: string;
 }
 
 interface ConversationEntry {
@@ -69,22 +76,11 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	braveSearchApiKey: "",
 	openAIApiKey: "lm-studio",
 	searchProvider: "tavily",
-	tavilyApiKey: ""
-};
-
-const personasDict: { [key: string]: string } = {
-	"default": "Default",
-	"physics": "Physics expert",
-	"fitness": "Fitness expert",
-	"developer": "Software Developer",
-	"stoic": "Stoic Philosopher",
-	"productmanager": "Product Manager",
-	"techwriter": "Technical Writer",
-	"creativewriter": "Creative Writer",
-	"tpm": "Technical Program Manager",
-	"engineeringmanager": "Engineering Manager",
-	"executive": "Executive",
-	"officeassistant": "Office Assistant"
+	tavilyApiKey: "",
+	savedPersonas: undefined,
+	customPrompts: [],
+	extractReasoningResponses: false,
+	reasoningMarkers: JSON.stringify(DEFAULT_REASONING_MARKERS, null, 2),
 };
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -94,6 +90,8 @@ export default class OLocalLLMPlugin extends Plugin {
 	isKillSwitchActive: boolean = false;
 	public ragManager: RAGManager;
 	private backlinkGenerator: BacklinkGenerator;
+	public personasDict: PersonasDict = {};
+	private registeredPromptCommands: Set<string> = new Set();
 
 	async checkForUpdates() {
 		const currentVersion = this.manifest.version;
@@ -110,6 +108,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	async onload() {
 		console.log('🔌 LLM Helper: Plugin loading...');
 		await this.loadSettings();
+		this.registerCustomPromptCommands();
 		console.log('⚙️ LLM Helper: Settings loaded:', {
 			provider: this.settings.providerType,
 			server: this.settings.serverAddress,
@@ -260,10 +259,32 @@ export default class OLocalLLMPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "select-custom-prompt",
+			name: "Text: Run saved prompt...",
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				const prompts = this.settings.customPrompts || [];
+				if (prompts.length === 0) {
+					new Notice("No saved prompts yet. Add some in settings.");
+					return;
+				}
+				const selectedText = this.getSelectedText();
+				if (selectedText.length === 0) {
+					new Notice("Please select some text first");
+					return;
+				}
+				new SelectPromptModal(this.app, prompts, (chosen) => {
+					this.isKillSwitchActive = false;
+					new Notice("Running: " + chosen.title);
+					processText(selectedText, chosen.prompt, this);
+				}).open();
+			},
+		});
+
+		this.addCommand({
 			id: "llm-chat",
 			name: "Chat: General",
 			callback: () => {
-				const chatModal = new LLMChatModal(this.app, this.settings);
+				const chatModal = new LLMChatModal(this.app, this);
 				chatModal.open();
 			},
 		});
@@ -308,7 +329,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Chat")
 					.setIcon("messages-square")
 					.onClick(() => {
-						new LLMChatModal(this.app, this.settings).open();
+						new LLMChatModal(this.app, this).open();
 					})
 			);
 
@@ -441,6 +462,29 @@ export default class OLocalLLMPlugin extends Plugin {
 					})
 			);
 
+			menu.addItem((item) =>
+				item
+					.setTitle("Run saved prompt...")
+					.setIcon("list")
+					.onClick(async () => {
+						const prompts = this.settings.customPrompts || [];
+						if (prompts.length === 0) {
+							new Notice("No saved prompts yet. Add some in settings.");
+							return;
+						}
+						const selectedText = this.getSelectedText();
+						if (selectedText.length === 0) {
+							new Notice("Please select some text first");
+							return;
+						}
+						new SelectPromptModal(this.app, prompts, (chosen) => {
+							this.isKillSwitchActive = false;
+							new Notice("Running: " + chosen.title);
+							processText(selectedText, chosen.prompt, this);
+						}).open();
+					})
+			);
+
 			menu.addSeparator();
 
 			// === Web Search Section ===
@@ -536,13 +580,15 @@ export default class OLocalLLMPlugin extends Plugin {
 		console.log('📂 LLM Helper: Loading plugin settings...');
 		const savedData = await this.loadData();
 		console.log('💾 LLM Helper: Raw saved data:', savedData);
-		
+
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
 			savedData
 		);
-		
+
+		this.rebuildPersonas();
+
 		console.log('✅ LLM Helper: Final settings after merge:', {
 			provider: this.settings.providerType,
 			server: this.settings.serverAddress,
@@ -555,11 +601,56 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		
+
 		// Update RAG manager with new settings
 		if (this.ragManager) {
 			this.ragManager.updateSettings(this.settings);
 		}
+	}
+
+	rebuildPersonas() {
+		this.personasDict = buildPersonasDict(this.settings.savedPersonas);
+	}
+
+	registerCustomPromptCommands() {
+		const prompts = this.settings.customPrompts || [];
+		for (const prompt of prompts) {
+			this.registerSinglePromptCommand(prompt);
+		}
+	}
+
+	registerSinglePromptCommand(customPrompt: CustomPrompt) {
+		const commandId = `ollm-helper:${customPrompt.id}`;
+		this.addCommand({
+			id: customPrompt.id,
+			name: `Prompt: ${customPrompt.title}`,
+			editorCallback: (editor: Editor, view: MarkdownView) => {
+				this.isKillSwitchActive = false;
+				const selectedText = this.getSelectedText();
+				if (selectedText.length > 0) {
+					new Notice("Running: " + customPrompt.title);
+					processText(selectedText, customPrompt.prompt, this);
+				}
+			},
+		});
+		this.registeredPromptCommands.add(commandId);
+	}
+
+	unregisterPromptCommand(id: string) {
+		const commandId = `ollm-helper:${id}`;
+		(this.app as any).commands.removeCommand(commandId);
+		this.registeredPromptCommands.delete(commandId);
+	}
+
+	refreshCustomPromptCommands() {
+		// Unregister all existing custom prompt commands
+		for (const commandId of this.registeredPromptCommands) {
+			(this.app as any).commands.removeCommand(commandId);
+		}
+		this.registeredPromptCommands.clear();
+
+		// Re-register all
+		this.registerCustomPromptCommands();
 	}
 
 
@@ -813,17 +904,101 @@ class OLLMSettingTab extends PluginSettingTab {
 			.setName("Persona")
 			.setDesc("AI personality for responses")
 			.addDropdown(dropdown => {
-				for (const key in personasDict) {
-					if (personasDict.hasOwnProperty(key)) {
-						dropdown.addOption(key, personasDict[key]);
-					}
+				for (const key in this.plugin.personasDict) {
+					dropdown.addOption(key, this.plugin.personasDict[key].displayName);
 				}
 				dropdown.setValue(this.plugin.settings.personas)
 					.onChange(async (value) => {
 						this.plugin.settings.personas = value;
 						await this.plugin.saveSettings();
+						this.display();
 					});
 			});
+
+		// Show/edit system prompt for selected persona
+		const selectedPersonaKey = this.plugin.settings.personas;
+		const selectedPersona = this.plugin.personasDict[selectedPersonaKey];
+		if (selectedPersona && selectedPersonaKey !== "default") {
+			const promptSetting = new Setting(containerEl)
+				.setName("System prompt")
+				.setDesc("Edit the system prompt for this persona");
+
+			const promptTextarea = containerEl.createEl("textarea", {
+				cls: "persona-prompt-textarea",
+				attr: { rows: "4", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 8px;" }
+			});
+			promptTextarea.value = selectedPersona.systemPrompt;
+
+			new Setting(containerEl)
+				.addButton(btn => btn
+					.setButtonText("Save persona prompt")
+					.onClick(async () => {
+						const saved = this.plugin.settings.savedPersonas || {};
+						saved[selectedPersonaKey] = {
+							displayName: selectedPersona.displayName,
+							systemPrompt: promptTextarea.value,
+						};
+						this.plugin.settings.savedPersonas = saved;
+						this.plugin.rebuildPersonas();
+						await this.plugin.saveSettings();
+						new Notice("Persona prompt saved");
+					}));
+		}
+
+		// Create new persona
+		const newPersonaContainer = containerEl.createDiv({ cls: "new-persona-container" });
+		const newNameInput = newPersonaContainer.createEl("input", {
+			attr: { type: "text", placeholder: "New persona name", style: "width: 100%; margin-bottom: 4px;" }
+		});
+		const newPromptInput = newPersonaContainer.createEl("textarea", {
+			attr: { placeholder: "System prompt for new persona", rows: "3", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 4px;" }
+		});
+
+		new Setting(newPersonaContainer)
+			.addButton(btn => btn
+				.setButtonText("Add persona")
+				.onClick(async () => {
+					const name = newNameInput.value.trim();
+					const prompt = newPromptInput.value.trim();
+					if (!name) { new Notice("Please enter a persona name"); return; }
+					if (!prompt) { new Notice("Please enter a system prompt"); return; }
+					const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+					if (!key) { new Notice("Invalid persona name"); return; }
+					const saved = this.plugin.settings.savedPersonas || {};
+					saved[key] = { displayName: name, systemPrompt: prompt + "\n\n" };
+					this.plugin.settings.savedPersonas = saved;
+					this.plugin.rebuildPersonas();
+					await this.plugin.saveSettings();
+					new Notice(`Persona "${name}" added`);
+					this.display();
+				}))
+			.addButton(btn => btn
+				.setButtonText("Delete selected persona")
+				.setWarning()
+				.setDisabled(selectedPersonaKey === "default" || DEFAULT_PERSONAS.hasOwnProperty(selectedPersonaKey) && !this.plugin.settings.savedPersonas?.[selectedPersonaKey])
+				.onClick(async () => {
+					if (DEFAULT_PERSONAS.hasOwnProperty(selectedPersonaKey)) {
+						new Notice("Cannot delete a built-in persona");
+						return;
+					}
+					const saved = this.plugin.settings.savedPersonas || {};
+					delete saved[selectedPersonaKey];
+					this.plugin.settings.savedPersonas = saved;
+					this.plugin.settings.personas = "default";
+					this.plugin.rebuildPersonas();
+					await this.plugin.saveSettings();
+					new Notice("Persona deleted");
+					this.display();
+				}))
+			.addButton(btn => btn
+				.setButtonText("Restore defaults")
+				.onClick(async () => {
+					this.plugin.settings.savedPersonas = undefined;
+					this.plugin.rebuildPersonas();
+					await this.plugin.saveSettings();
+					new Notice("Personas restored to defaults");
+					this.display();
+				}));
 
 		new Setting(containerEl)
 			.setName("Conversation history")
@@ -913,6 +1088,44 @@ class OLLMSettingTab extends PluginSettingTab {
 				);
 		}
 
+		// Reasoning extraction
+		new Setting(containerEl)
+			.setName("Extract reasoning")
+			.setDesc("Strip <think>, <reasoning>, <thought> blocks from output (useful for Qwen, DeepSeek)")
+			.addToggle(toggle =>
+				toggle
+					.setValue(this.plugin.settings.extractReasoningResponses ?? false)
+					.onChange(async (value) => {
+						this.plugin.settings.extractReasoningResponses = value;
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		if (this.plugin.settings.extractReasoningResponses) {
+			const markersTextarea = containerEl.createEl("textarea", {
+				attr: {
+					rows: "6",
+					style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 8px;",
+					placeholder: 'JSON array of {start, end} marker pairs'
+				}
+			});
+			markersTextarea.value = this.plugin.settings.reasoningMarkers
+				|| JSON.stringify(DEFAULT_REASONING_MARKERS, null, 2);
+
+			new Setting(containerEl)
+				.setName("Reasoning markers")
+				.setDesc("JSON array of marker pairs to strip from responses")
+				.addButton(btn => btn
+					.setButtonText("Save markers")
+					.onClick(async () => {
+						const parsed = parseReasoningMarkers(markersTextarea.value);
+						this.plugin.settings.reasoningMarkers = JSON.stringify(parsed, null, 2);
+						await this.plugin.saveSettings();
+						new Notice("Reasoning markers saved");
+					}));
+		}
+
 		// ═══════════════════════════════════════════════════════════
 		// CUSTOM PROMPT
 		// ═══════════════════════════════════════════════════════════
@@ -930,6 +1143,87 @@ class OLLMSettingTab extends PluginSettingTab {
 						this.debouncedSave();
 					})
 			);
+
+		// ═══════════════════════════════════════════════════════════
+		// SAVED PROMPTS
+		// ═══════════════════════════════════════════════════════════
+		containerEl.createEl("h3", { text: "Saved Prompts" });
+
+		const savedPrompts = this.plugin.settings.customPrompts || [];
+
+		if (savedPrompts.length > 0) {
+			for (const sp of savedPrompts) {
+				new Setting(containerEl)
+					.setName(sp.title)
+					.setDesc(sp.prompt.length > 80 ? sp.prompt.substring(0, 80) + "..." : sp.prompt)
+					.addButton(btn => btn
+						.setButtonText("Edit")
+						.onClick(() => {
+							new EditPromptModal(this.app, sp, async (updated) => {
+								sp.title = updated.title;
+								sp.prompt = updated.prompt;
+								sp.updatedAt = Date.now();
+								// Regenerate ID if title changed
+								sp.id = generatePromptId(updated.title);
+								this.plugin.refreshCustomPromptCommands();
+								await this.plugin.saveSettings();
+								new Notice("Prompt updated");
+								this.display();
+							}).open();
+						}))
+					.addButton(btn => btn
+						.setButtonText("Delete")
+						.setWarning()
+						.onClick(async () => {
+							this.plugin.settings.customPrompts = savedPrompts.filter(p => p.id !== sp.id);
+							this.plugin.unregisterPromptCommand(sp.id);
+							await this.plugin.saveSettings();
+							new Notice("Prompt deleted");
+							this.display();
+						}));
+			}
+		} else {
+			containerEl.createEl("p", {
+				text: "No saved prompts yet. Add one below.",
+				cls: "setting-item-description"
+			});
+		}
+
+		// Add new prompt form
+		const newPromptContainer = containerEl.createDiv({ cls: "new-prompt-container" });
+		const newTitleInput = newPromptContainer.createEl("input", {
+			attr: { type: "text", placeholder: "Prompt title (e.g., Translate to Spanish)", style: "width: 100%; margin-bottom: 4px;" }
+		});
+		const newPromptTextarea = newPromptContainer.createEl("textarea", {
+			attr: { placeholder: "Prompt text (e.g., Translate the following text to Spanish:)", rows: "3", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 4px;" }
+		});
+
+		new Setting(newPromptContainer)
+			.addButton(btn => btn
+				.setButtonText("Add prompt")
+				.setCta()
+				.onClick(async () => {
+					const title = newTitleInput.value.trim();
+					const prompt = newPromptTextarea.value.trim();
+					if (!title) { new Notice("Please enter a title"); return; }
+					if (!prompt) { new Notice("Please enter a prompt"); return; }
+					const now = Date.now();
+					const newPrompt: CustomPrompt = {
+						id: generatePromptId(title),
+						title,
+						prompt,
+						createdAt: now,
+						updatedAt: now,
+					};
+					if (!this.plugin.settings.customPrompts) {
+						this.plugin.settings.customPrompts = [];
+					}
+					this.plugin.settings.customPrompts.push(newPrompt);
+					this.plugin.registerSinglePromptCommand(newPrompt);
+					await this.plugin.saveSettings();
+					new Notice(`Prompt "${title}" saved`);
+					this.display();
+				}));
 
 		// ═══════════════════════════════════════════════════════════
 		// NOTES INDEX (RAG)
@@ -1090,25 +1384,6 @@ class OLLMSettingTab extends PluginSettingTab {
 	}
 }
 
-export function modifyPrompt(aprompt: string, personas: string): string {
-	const personaPrompts: { [key: string]: string } = {
-		"physics": "You are a physics expert. Explain using scientific principles. Include equations when helpful. Make complex topics accessible.\n\n",
-		"fitness": "You are a fitness expert. Give evidence-based advice. Consider safety and individual limitations. Be practical.\n\n",
-		"developer": "You are a senior software developer. Write clean, maintainable code. Consider edge cases and explain technical tradeoffs.\n\n",
-		"stoic": "You are a stoic philosopher. Focus on what's within one's control. Offer perspective and encourage rational thinking over emotional reactions.\n\n",
-		"productmanager": "You are a product manager. Focus on user needs. Prioritize ruthlessly. Think in outcomes and metrics, not features.\n\n",
-		"techwriter": "You are a technical writer. Be precise and structured. Define jargon. Write for the least technical reader.\n\n",
-		"creativewriter": "You are a creative writer. Use vivid language and strong imagery. Show rather than tell.\n\n",
-		"tpm": "You are a technical program manager. Break down complexity. Identify dependencies and risks. Bridge technical and non-technical audiences.\n\n",
-		"engineeringmanager": "You are an engineering manager. Balance technical excellence with team health. Think about scalability. Communicate with empathy.\n\n",
-		"executive": "You are a C-level executive. Think strategically. Focus on business impact. Be concise with clear recommendations.\n\n",
-		"officeassistant": "You are an office assistant. Be helpful and organized. Anticipate needs. Provide actionable next steps.\n\n",
-	};
-
-	const prefix = personaPrompts[personas];
-	return prefix ? prefix + aprompt : aprompt;
-}
-
 async function processText(
 	selectedText: string,
 	iprompt: string,
@@ -1127,7 +1402,7 @@ async function processText(
 		console.error("Status bar item element not found");
 	}
 
-	let prompt = modifyPrompt(iprompt, plugin.settings.personas);
+	let prompt = modifyPrompt(iprompt, plugin.settings.personas, plugin.personasDict);
 
 	console.log("prompt", prompt + ": " + selectedText);
 
@@ -1196,7 +1471,13 @@ async function processText(
 
 					if (done) {
 						new Notice("Text generation complete. Voila!");
-						updateConversationHistory(prompt + ": " + selectedText, responseStr, plugin.conversationHistory, plugin.settings.maxConvHistory);
+						// Apply reasoning extraction to accumulated response for conversation history
+						let finalResponse = responseStr;
+						if (plugin.settings.extractReasoningResponses) {
+							const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
+							finalResponse = extractActualResponse(responseStr, markers);
+						}
+						updateConversationHistory(prompt + ": " + selectedText, finalResponse, plugin.conversationHistory, plugin.settings.maxConvHistory);
 						if (plugin.settings.responseFormatting === true) {
 							modifySelectedText(plugin.settings.responseFormatAppend);
 						}
@@ -1215,6 +1496,7 @@ async function processText(
 								);
 								if (modifiedLine !== "[DONE]") {
 									const data = JSON.parse(modifiedLine);
+									// Skip delta.reasoning field (separate reasoning stream)
 									if (data.choices[0].delta.content) {
 										let word =
 											data.choices[0].delta.content;
@@ -1250,7 +1532,19 @@ async function processText(
 
 			if (statusCode >= 200 && statusCode < 300) {
 				const data = await response.json;
-				const summarizedText = data.choices[0].message.content;
+				let summarizedText = data.choices[0].message.content;
+
+				// Use explicit reasoning field if available
+				if (data.choices[0].message.reasoning) {
+					summarizedText = data.choices[0].message.content;
+				}
+
+				// Strip reasoning markers if enabled
+				if (plugin.settings.extractReasoningResponses) {
+					const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
+					summarizedText = extractActualResponse(summarizedText, markers);
+				}
+
 				console.log(summarizedText);
 				updateConversationHistory(prompt + ": " + selectedText, summarizedText, plugin.conversationHistory, plugin.settings.maxConvHistory);
 				new Notice("Text generated. Voila!");
@@ -1309,12 +1603,14 @@ function modifySelectedText(text: any) {
 export class LLMChatModal extends Modal {
 	result: string = "";
 	pluginSettings: OLocalLLMSettings;
+	plugin: OLocalLLMPlugin;
 	conversationHistory: ConversationEntry[] = [];
 	submitButton: ButtonComponent;
 
-	constructor(app: App, settings: OLocalLLMSettings) {
+	constructor(app: App, plugin: OLocalLLMPlugin) {
 		super(app);
-		this.pluginSettings = settings;
+		this.plugin = plugin;
+		this.pluginSettings = plugin.settings;
 	}
 
 	onOpen() {
@@ -1332,7 +1628,8 @@ export class LLMChatModal extends Modal {
 
 		const personasInfoEl = document.createElement('div');
 		personasInfoEl.classList.add("personasInfoStyle");
-		personasInfoEl.innerText = "Current persona: " + personasDict[this.pluginSettings.personas];
+		const currentPersona = this.plugin.personasDict[this.pluginSettings.personas];
+		personasInfoEl.innerText = "Current persona: " + (currentPersona ? currentPersona.displayName : "Default");
 		chatHistoryEl.appendChild(personasInfoEl);
 
 		// Update this part to use conversationHistory
@@ -1405,7 +1702,8 @@ export class LLMChatModal extends Modal {
 				this.contentEl,
 				chatHistoryEl as HTMLElement,
 				this.conversationHistory,
-				this.pluginSettings
+				this.pluginSettings,
+				this.plugin.personasDict
 			);
 			this.result = ""; // Clear user input field
 			const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
@@ -1425,7 +1723,7 @@ export class LLMChatModal extends Modal {
 	}
 }
 
-async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings) {
+async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings, personasDict: PersonasDict) {
 	const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
 
 	// Add user's question to conversation history
@@ -1440,7 +1738,7 @@ async function processChatInput(text: string, personas: string, chatContainer: H
 	showThinkingIndicator(chatHistoryEl);
 	scrollToBottom(chatContainer);
 
-	text = modifyPrompt(text, personas);
+	text = modifyPrompt(text, personas, personasDict);
 	console.log(text);
 
 	try {
@@ -1475,7 +1773,13 @@ async function processChatInput(text: string, personas: string, chatContainer: H
 
 		if (statusCode >= 200 && statusCode < 300) {
 			const data = await response.json;
-			const llmResponse = data.choices[0].message.content;
+			let llmResponse = data.choices[0].message.content;
+
+			// Strip reasoning markers if enabled
+			if (pluginSettings.extractReasoningResponses) {
+				const markers = parseReasoningMarkers(pluginSettings.reasoningMarkers || '');
+				llmResponse = extractActualResponse(llmResponse, markers);
+			}
 
 			// Convert LLM response to HTML
 			let formattedResponse = llmResponse;
@@ -1579,8 +1883,53 @@ function updateConversationHistory(prompt: string, response: string, conversatio
 }
 
 
-//TODO: add a button to clear the chat history
-//TODO: add a button to save the chat history to a obsidian file
+class EditPromptModal extends Modal {
+	private prompt: CustomPrompt;
+	private onSave: (updated: { title: string; prompt: string }) => void;
+
+	constructor(app: App, prompt: CustomPrompt, onSave: (updated: { title: string; prompt: string }) => void) {
+		super(app);
+		this.prompt = prompt;
+		this.onSave = onSave;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.createEl("h2", { text: "Edit Prompt" });
+
+		const titleInput = contentEl.createEl("input", {
+			attr: { type: "text", value: this.prompt.title, style: "width: 100%; margin-bottom: 8px;" }
+		});
+
+		const promptTextarea = contentEl.createEl("textarea", {
+			attr: { rows: "5", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 8px;" }
+		});
+		promptTextarea.value = this.prompt.prompt;
+
+		new Setting(contentEl)
+			.addButton(btn => btn
+				.setButtonText("Save")
+				.setCta()
+				.onClick(() => {
+					const title = titleInput.value.trim();
+					const prompt = promptTextarea.value.trim();
+					if (!title || !prompt) {
+						new Notice("Title and prompt are required");
+						return;
+					}
+					this.onSave({ title, prompt });
+					this.close();
+				}))
+			.addButton(btn => btn
+				.setButtonText("Cancel")
+				.onClick(() => this.close()));
+	}
+
+	onClose() {
+		this.contentEl.empty();
+	}
+}
 
 //TODO: kill switch
 

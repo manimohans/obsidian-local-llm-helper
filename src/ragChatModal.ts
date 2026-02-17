@@ -1,6 +1,7 @@
 import { App, Modal, TextComponent, ButtonComponent, Notice, setIcon } from "obsidian";
 import { OLocalLLMSettings } from "../main";
 import { RAGManager } from "./rag";
+import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 
 export class RAGChatModal extends Modal {
 	private result: string = "";
@@ -139,6 +140,13 @@ export class RAGChatModal extends Modal {
 		try {
 			const response = await this.ragManager.getRAGResponse(query);
 
+			// Apply reasoning extraction if enabled
+			let responseContent = response.response;
+			if (this.pluginSettings.extractReasoningResponses) {
+				const markers = parseReasoningMarkers(this.pluginSettings.reasoningMarkers || '');
+				responseContent = extractActualResponse(responseContent, markers);
+			}
+
 			// Remove thinking indicator
 			thinkingEl.remove();
 
@@ -147,7 +155,7 @@ export class RAGChatModal extends Modal {
 
 			// Response text
 			const responseText = aiMsg.createDiv({ cls: "rag-chat-response-text" });
-			responseText.innerHTML = this.formatResponse(response.response);
+			responseText.innerHTML = this.formatResponse(responseContent);
 
 			// Sources
 			if (response.sources.length > 0) {
@@ -176,7 +184,7 @@ export class RAGChatModal extends Modal {
 			setIcon(copyBtn, "copy");
 			copyBtn.setAttribute("aria-label", "Copy response");
 			copyBtn.addEventListener("click", () => {
-				navigator.clipboard.writeText(response.response).then(() => {
+				navigator.clipboard.writeText(responseContent).then(() => {
 					new Notice("Copied to clipboard");
 				});
 			});

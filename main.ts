@@ -84,6 +84,16 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	reasoningMarkers: JSON.stringify(DEFAULT_REASONING_MARKERS, null, 2),
 };
 
+function normalizeServerAddress(address: string): string {
+	const trimmed = address.trim();
+	if (!trimmed) return trimmed;
+	if (!/^https?:\/\//i.test(trimmed)) {
+		return "http://" + trimmed;
+	}
+	// Strip trailing slash
+	return trimmed.replace(/\/+$/, '');
+}
+
 export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
 	modal: any;
@@ -588,6 +598,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			savedData
 		);
 
+		this.settings.serverAddress = normalizeServerAddress(this.settings.serverAddress);
 		this.rebuildPersonas();
 
 		console.log('✅ LLM Helper: Final settings after merge:', {
@@ -863,7 +874,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.setPlaceholder("http://localhost:11434")
 					.setValue(this.plugin.settings.serverAddress)
 					.onChange((value) => {
-						this.plugin.settings.serverAddress = value;
+						this.plugin.settings.serverAddress = normalizeServerAddress(value);
 						this.debouncedSave();
 					})
 			);

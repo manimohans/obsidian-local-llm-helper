@@ -196,6 +196,10 @@ Go to Settings → Local LLM Helper and choose your provider:
 - Searchable picker modal — works with Ollama, LM Studio, vLLM, and others
 - Manual text entry always available as fallback
 
+**Bug Fixes**
+- Fixed server URL normalization to prevent missing protocol errors
+- Resolved security vulnerabilities and cleaned up dependencies
+
 ### v2.3.1
 **New Features**
 - **Redesigned RAG Chat**: New interface with welcome message, example queries, and clickable sources

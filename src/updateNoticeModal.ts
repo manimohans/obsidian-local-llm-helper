@@ -3,6 +3,21 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.0",
+		date: "2026-02",
+		changes: `
+**New Features**
+- **Saved Custom Prompts**: Save frequently-used prompts and access them via command palette or fuzzy picker
+- **Persona Editing**: Create, edit, and delete custom personas directly from settings
+- **Reasoning Extraction**: Strip \`<think>\`, \`<reasoning>\`, and \`<thought>\` blocks from LLM output with configurable markers
+- **Model Picker**: Fetches available models from your LLM server — no more typing model names manually
+
+**Bug Fixes**
+- Fixed server URL normalization to prevent missing protocol errors
+- Resolved security vulnerabilities and cleaned up dependencies
+`,
+	},
+	{
 		version: "2.3.3",
 		date: "2025-02",
 		changes: `

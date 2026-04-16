@@ -114,7 +114,7 @@ export class RAGManager {
 		}
 
 		try {
-			const docs = await this.vectorStore.similaritySearch(query, 4);
+			const docs = await this.vectorStore.similaritySearch(query, this.settings.ragTopK);
 			if (docs.length === 0) {
 				throw new Error("No relevant content found. Try rephrasing your question.");
 			}
@@ -146,7 +146,7 @@ Answer:`
 			const documentChain = await createStuffDocumentsChain({ llm, prompt: promptTemplate });
 			const retrievalChain = await createRetrievalChain({
 				combineDocsChain: documentChain,
-				retriever: this.vectorStore.asRetriever(4),
+				retriever: this.vectorStore.asRetriever(this.settings.ragTopK),
 			});
 
 			const result = await retrievalChain.invoke({ input: query });
@@ -451,7 +451,7 @@ Answer:`
 
 	async findSimilarNotes(query: string): Promise<string> {
 		try {
-			const similarDocs = await this.vectorStore.similaritySearch(query, 5);
+			const similarDocs = await this.vectorStore.similaritySearch(query, this.settings.ragTopK);
 
 			if (similarDocs.length === 0) {
 				return '';

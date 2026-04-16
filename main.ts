@@ -103,7 +103,8 @@ export default class OLocalLLMPlugin extends Plugin {
 	modal: any;
 	conversationHistory: ConversationEntry[] = [];
 	isKillSwitchActive: boolean = false;
-  	autoIndexTimer: number | undefined;
+	autoIndexTimer: number | undefined;
+	isIndexing: boolean = false;
 	public ragManager: RAGManager;
 	private backlinkGenerator: BacklinkGenerator;
 	public personasDict: PersonasDict = {};
@@ -594,21 +595,29 @@ export default class OLocalLLMPlugin extends Plugin {
 	onunload() { }
 
 	startAutoIndexTimer() {
-	  if (this.autoIndexTimer) {
-		clearInterval(this.autoIndexTimer);
-		this.autoIndexTimer = undefined;
-	  }
-	  const minutes = this.settings.autoIndexIntervalMinutes;
-	  if (minutes > 0) {
-		this.autoIndexTimer = this.registerInterval(
-		  window.setInterval(async () => {
-		    console.log("⏰ LLM Helper: Auto-indexing notes...");
-		    new Notice("LLM Helper: Auto-indexing notes...");
-		    await this.ragManager.indexNotes(() => {});
-		    new Notice("LLM Helper: Auto-index complete.");
-		  }, minutes * 60 * 1000)
-		);
-	  }
+		if (this.autoIndexTimer) {
+			clearInterval(this.autoIndexTimer);
+			this.autoIndexTimer = undefined;
+		}
+		const minutes = this.settings.autoIndexIntervalMinutes;
+		if (minutes > 0) {
+			this.autoIndexTimer = this.registerInterval(
+				window.setInterval(async () => {
+					console.log("LLM Helper: Auto-indexing notes...");
+					new Notice("LLM Helper: Auto-indexing notes...");
+					this.isIndexing = true;
+					try {
+						await this.ragManager.indexNotes(() => {});
+						new Notice("LLM Helper: Auto-index complete.");
+						console.log("LLM Helper: Auto-index complete.");
+					} catch (error) {
+						console.log("LLM Helper: Auto-index error:", error);
+					} finally {
+						this.isIndexing = false;
+					}
+				}, minutes * 60 * 1000)
+			);
+		}
 	}
 
 	async loadSettings() {
@@ -693,6 +702,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	async indexNotes() {
 		new Notice('Indexing notes for RAG...');
+		this.isIndexing = true;
 		try {
 			await this.ragManager.indexNotes(progress => {
 				// You can use the progress value here if needed
@@ -702,6 +712,8 @@ export default class OLocalLLMPlugin extends Plugin {
 		} catch (error) {
 			console.error('Error indexing notes:', error);
 			new Notice('Failed to index notes. Check console for details.');
+		} finally {
+			this.isIndexing = false;
 		}
 	}
 
@@ -1370,34 +1382,36 @@ class OLLMSettingTab extends PluginSettingTab {
 		
 		// Top K
 		new Setting(containerEl)
-		    .setName("RAG Top K")
-		    .setDesc("Number of relevant note chunks to send to the AI")
-		    .addText((text) =>
-		        text
-		            .setValue(this.plugin.settings.ragTopK.toString())
-		            .onChange(async (value) => {
-		                const numValue = parseInt(value);
-		                if (!isNaN(numValue)) {
-		                    this.plugin.settings.ragTopK = numValue;
-		                    await this.plugin.saveSettings();
-		                }
-		            })
-        	);
+			.setName("RAG Top K")
+			.setDesc("Number of relevant note chunks to send to the AI")
+			.addText((text) => {
+				text.inputEl.type = "number"
+				text.inputEl.min = "1";
+				text
+					.setValue(this.plugin.settings.ragTopK.toString())
+					.onChange(async (value) => {
+						const numValue = parseInt(value);
+						if (!isNaN(numValue)) {
+							this.plugin.settings.ragTopK = Math.max(1, numValue);
+							await this.plugin.saveSettings();
+						}
+					})
+			});
         	
 		// Auto-index interval
 		new Setting(containerEl)
-		  .setName("Auto-index interval (minutes)")
-		  .setDesc("Automatically re-index notes every N minutes. Set to 0 to disable.")
-		  .addText(text => text
-		    .setPlaceholder("0")
-		    .setValue(String(this.plugin.settings.autoIndexIntervalMinutes))
-		    .onChange(async (value) => {
-		      const parsed = parseInt(value);
-		      this.plugin.settings.autoIndexIntervalMinutes = isNaN(parsed) || parsed < 0 ? 0 : parsed;
-		      await this.plugin.saveSettings();
-		      this.plugin.startAutoIndexTimer();
-		    })
-		  );
+			.setName("Auto-index interval (minutes)")
+			.setDesc("Automatically re-index notes every N minutes. Set to 0 to disable.")
+			.addText(text => text
+				.setPlaceholder("0")
+				.setValue(String(this.plugin.settings.autoIndexIntervalMinutes))
+				.onChange(async (value) => {
+					const parsed = parseInt(value);
+					this.plugin.settings.autoIndexIntervalMinutes = isNaN(parsed) || parsed < 0 ? 0 : parsed;
+					await this.plugin.saveSettings();
+					this.plugin.startAutoIndexTimer();
+				})
+			);
 
 		new Setting(containerEl)
 			.setName("Index notes")

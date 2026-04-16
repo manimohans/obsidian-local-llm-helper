@@ -53,6 +53,7 @@ export interface OLocalLLMSettings {
 	reasoningMarkers?: string;
 	ragTopK: number;
 	autoIndexIntervalMinutes: number;
+	autoNotice: boolean;
 }
 
 interface ConversationEntry {
@@ -86,6 +87,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	reasoningMarkers: JSON.stringify(DEFAULT_REASONING_MARKERS, null, 2),
 	ragTopK: 5,
 	autoIndexIntervalMinutes: 0,   // 0 = disabled
+	autoNotice: false,
 };
 
 function normalizeServerAddress(address: string): string {
@@ -603,12 +605,20 @@ export default class OLocalLLMPlugin extends Plugin {
 		if (minutes > 0) {
 			this.autoIndexTimer = this.registerInterval(
 				window.setInterval(async () => {
+					if (this.isIndexing) {
+						console.log("LLM Helper: Skipping auto-index, indexxing already in progress.");
+						return;
+					}
 					console.log("LLM Helper: Auto-indexing notes...");
-					new Notice("LLM Helper: Auto-indexing notes...");
+					if(this.settings.autoNotice) {
+						new Notice("LLM Helper: Auto-indexing notes...");
+					}
 					this.isIndexing = true;
 					try {
 						await this.ragManager.indexNotes(() => {});
-						new Notice("LLM Helper: Auto-index complete.");
+						if(this.settings.autoNotice) {
+							new Notice("LLM Helper: Auto-index complete.");
+						}
 						console.log("LLM Helper: Auto-index complete.");
 					} catch (error) {
 						console.log("LLM Helper: Auto-index error:", error);
@@ -702,6 +712,11 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	async indexNotes() {
 		new Notice('Indexing notes for RAG...');
+
+		if (this.isIndexing) {
+			console.log("LLM Helper: Skipping auto-index, indexxing already in progress.");
+			return;
+		}
 		this.isIndexing = true;
 		try {
 			await this.ragManager.indexNotes(progress => {
@@ -1411,6 +1426,18 @@ class OLLMSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					this.plugin.startAutoIndexTimer();
 				})
+			);
+
+		new Setting(containerEl)
+			.setName("Auto Index Notification")
+			.setDesc("Show a notification when auto indexing")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.autoNotice)
+					.onChange(async (value) => {
+						this.plugin.settings.autoNotice = value;
+						await this.plugin.saveSettings();
+					})
 			);
 
 		new Setting(containerEl)

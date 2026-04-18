@@ -3,6 +3,18 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.1",
+		date: "2026-04",
+		changes: `
+**Bug Fixes**
+- **RAG indexing produced all-zero vectors on LM Studio** (and other servers that ignore \`encoding_format=base64\`). The plugin now calls \`/v1/embeddings\` directly and explicitly requests \`encoding_format=float\`, so embeddings come back correctly. A validation pass also fails loudly if a server ever returns all-zero vectors.
+- **Re-index required**: if you previously indexed notes and RAG chat was returning poor/irrelevant results, open Settings → Notes Index and click **Re-index notes** to regenerate embeddings.
+
+**Security**
+- Updated \`axios\`, \`follow-redirects\`, and \`yaml\` to address moderate-severity advisories.
+`,
+	},
+	{
 		version: "2.4.0",
 		date: "2026-02",
 		changes: `

@@ -606,7 +606,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			this.autoIndexTimer = this.registerInterval(
 				window.setInterval(async () => {
 					if (this.isIndexing) {
-						console.log("LLM Helper: Skipping auto-index, indexxing already in progress.");
+						console.log("LLM Helper: Skipping auto-index, indexing already in progress.");
 						return;
 					}
 					console.log("LLM Helper: Auto-indexing notes...");
@@ -660,7 +660,6 @@ export default class OLocalLLMPlugin extends Plugin {
 		// Update RAG manager with new settings
 		if (this.ragManager) {
 			this.ragManager.updateSettings(this.settings);
-			this.startAutoIndexTimer();
 		}
 	}
 
@@ -711,13 +710,13 @@ export default class OLocalLLMPlugin extends Plugin {
 
 
 	async indexNotes() {
-		new Notice('Indexing notes for RAG...');
-
 		if (this.isIndexing) {
-			console.log("LLM Helper: Skipping auto-index, indexxing already in progress.");
+			new Notice('Indexing already in progress.');
+			console.log("LLM Helper: Skipping manual index, indexing already in progress.");
 			return;
 		}
 		this.isIndexing = true;
+		new Notice('Indexing notes for RAG...');
 		try {
 			await this.ragManager.indexNotes(progress => {
 				// You can use the progress value here if needed
@@ -1412,7 +1411,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						}
 					})
 			});
-        	
+
 		// Auto-index interval
 		new Setting(containerEl)
 			.setName("Auto-index interval (minutes)")

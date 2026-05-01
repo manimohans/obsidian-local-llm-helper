@@ -1,9 +1,8 @@
 import { Document } from 'langchain/document';
 import { MemoryVectorStore } from 'langchain/vectorstores/memory';
-import { TFile, Vault, Plugin } from 'obsidian';
+import { TFile, Vault, Plugin, App } from 'obsidian';
 import { OpenAIEmbeddings } from './openAIEmbeddings';
 import { ChatOpenAI } from "@langchain/openai";
-import { createRetrievalChain } from "langchain/chains/retrieval";
 import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { OLocalLLMSettings } from '../main';
@@ -40,6 +39,16 @@ interface EmbeddingData {
 		model: string;
 		serverAddress: string;
 	};
+}
+
+export type RAGScopeMode = 'vault' | 'paths' | 'folder' | 'tags';
+
+export interface RAGQueryScope {
+	mode: RAGScopeMode;
+	paths?: string[];
+	folder?: string;
+	tags?: string[];
+	label?: string;
 }
 
 // Chunking configuration
@@ -107,16 +116,20 @@ export class RAGManager {
 		}
 	}
 
-	async getRAGResponse(query: string): Promise<{ response: string, sources: string[] }> {
+	async getRAGResponse(query: string, scope?: RAGQueryScope): Promise<{ response: string, sources: string[] }> {
 		const indexedCount = this.getIndexedFilesCount();
 		if (indexedCount === 0) {
 			throw new Error("No notes indexed. Please index your notes first in Settings → Notes Index.");
 		}
 
 		try {
-			const docs = await this.vectorStore.similaritySearch(query, this.settings.ragTopK);
+			const resolvedScope = this.normalizeScope(scope);
+			const docs = await this.searchDocuments(query, resolvedScope);
 			if (docs.length === 0) {
-				throw new Error("No relevant content found. Try rephrasing your question.");
+				if (resolvedScope.mode === 'vault') {
+					throw new Error("No relevant content found. Try rephrasing your question.");
+				}
+				throw new Error(`No indexed content matched the selected scope (${this.describeScope(resolvedScope)}).`);
 			}
 
 			const baseURL = this.settings.serverAddress.endsWith('/v1')
@@ -144,21 +157,176 @@ Answer:`
 			);
 
 			const documentChain = await createStuffDocumentsChain({ llm, prompt: promptTemplate });
-			const retrievalChain = await createRetrievalChain({
-				combineDocsChain: documentChain,
-				retriever: this.vectorStore.asRetriever(this.settings.ragTopK),
+			const result = await documentChain.invoke({
+				input: query,
+				context: docs,
 			});
-
-			const result = await retrievalChain.invoke({ input: query });
-			const sources = [...new Set(result.context.map((doc: Document) => doc.metadata.source))];
+			const sources = [...new Set(docs.map((doc: Document) => doc.metadata.source))];
 
 			return {
-				response: result.answer as string,
+				response: result as string,
 				sources: sources
 			};
 		} catch (error) {
 			console.error("RAG Error:", error);
 			throw error;
+		}
+	}
+
+	private async searchDocuments(query: string, scope: RAGQueryScope): Promise<Document[]> {
+		if (scope.mode === 'vault') {
+			return this.vectorStore.similaritySearch(query, this.settings.ragTopK);
+		}
+
+		const filteredVectors = this.getScopedVectors(scope);
+		if (filteredVectors.length === 0) {
+			return [];
+		}
+
+		const queryEmbedding = await this.embeddings.embedQuery(query);
+		return filteredVectors
+			.map((item: any) => ({
+				score: this.cosineSimilarity(queryEmbedding, item.embedding),
+				document: new Document({
+					pageContent: item.content,
+					metadata: item.metadata
+				})
+			}))
+			.sort((a, b) => b.score - a.score)
+			.slice(0, this.settings.ragTopK)
+			.map(item => item.document);
+	}
+
+	private getScopedVectors(scope: RAGQueryScope): any[] {
+		const memoryVectors = (this.vectorStore as any).memoryVectors;
+		if (!memoryVectors || !Array.isArray(memoryVectors)) {
+			return [];
+		}
+
+		return memoryVectors.filter((item: any) => this.matchesScope(item.metadata?.source, scope));
+	}
+
+	private matchesScope(sourcePath: string | undefined, scope: RAGQueryScope): boolean {
+		if (!sourcePath) {
+			return false;
+		}
+
+		switch (scope.mode) {
+			case 'vault':
+				return true;
+			case 'paths':
+				return (scope.paths || []).includes(sourcePath);
+			case 'folder':
+				if (!scope.folder) return false;
+				return sourcePath === scope.folder || sourcePath.startsWith(`${scope.folder}/`);
+			case 'tags':
+				return this.fileHasAnyTag(sourcePath, scope.tags || []);
+			default:
+				return false;
+		}
+	}
+
+	private fileHasAnyTag(sourcePath: string, tags: string[]): boolean {
+		if (tags.length === 0) {
+			return false;
+		}
+
+		const app = (this.plugin.app as App);
+		const file = app.vault.getAbstractFileByPath(sourcePath);
+		if (!(file instanceof TFile)) {
+			return false;
+		}
+
+		const cache = app.metadataCache.getFileCache(file) as any;
+		const discoveredTags = new Set<string>();
+
+		for (const entry of cache?.tags || []) {
+			if (entry?.tag) {
+				discoveredTags.add(this.normalizeTag(entry.tag));
+			}
+		}
+
+		const frontmatterTags = cache?.frontmatter?.tags;
+		if (Array.isArray(frontmatterTags)) {
+			for (const tag of frontmatterTags) {
+				if (typeof tag === 'string') {
+					discoveredTags.add(this.normalizeTag(tag));
+				}
+			}
+		} else if (typeof frontmatterTags === 'string') {
+			discoveredTags.add(this.normalizeTag(frontmatterTags));
+		}
+
+		return tags.some(tag => discoveredTags.has(this.normalizeTag(tag)));
+	}
+
+	private normalizeTag(tag: string): string {
+		return tag.trim().replace(/^#/, '').toLowerCase();
+	}
+
+	private cosineSimilarity(a: number[], b: number[]): number {
+		if (a.length === 0 || b.length === 0 || a.length !== b.length) {
+			return -1;
+		}
+
+		let dot = 0;
+		let normA = 0;
+		let normB = 0;
+
+		for (let i = 0; i < a.length; i++) {
+			dot += a[i] * b[i];
+			normA += a[i] * a[i];
+			normB += b[i] * b[i];
+		}
+
+		if (normA === 0 || normB === 0) {
+			return -1;
+		}
+
+		return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+	}
+
+	private normalizeScope(scope?: RAGQueryScope): RAGQueryScope {
+		if (!scope) {
+			return { mode: 'vault', label: 'Entire vault' };
+		}
+
+		if (scope.mode === 'paths') {
+			const paths = [...new Set((scope.paths || []).filter(Boolean))];
+			return {
+				mode: paths.length > 0 ? 'paths' : 'vault',
+				paths,
+				label: scope.label || (paths.length === 1 ? paths[0] : `${paths.length} notes`)
+			};
+		}
+
+		if (scope.mode === 'folder') {
+			const folder = (scope.folder || '').replace(/^\/+|\/+$/g, '');
+			return folder
+				? { mode: 'folder', folder, label: scope.label || folder }
+				: { mode: 'vault', label: 'Entire vault' };
+		}
+
+		if (scope.mode === 'tags') {
+			const tags = [...new Set((scope.tags || []).map(tag => this.normalizeTag(tag)).filter(Boolean))];
+			return tags.length > 0
+				? { mode: 'tags', tags, label: scope.label || tags.map(tag => `#${tag}`).join(', ') }
+				: { mode: 'vault', label: 'Entire vault' };
+		}
+
+		return { mode: 'vault', label: scope.label || 'Entire vault' };
+	}
+
+	private describeScope(scope: RAGQueryScope): string {
+		switch (scope.mode) {
+			case 'paths':
+				return scope.label || `${scope.paths?.length || 0} notes`;
+			case 'folder':
+				return scope.label || scope.folder || 'folder';
+			case 'tags':
+				return scope.label || (scope.tags || []).map(tag => `#${tag}`).join(', ');
+			default:
+				return 'entire vault';
 		}
 	}
 

@@ -39,6 +39,81 @@
 .thinking-indicator span {
   margin-left: 2px;
 }
+
+.rag-chat-scope-bar,
+.rag-chat-scope-meta,
+.rag-chat-badge-row {
+  display: flex;
+}
+
+.rag-chat-scope-bar {
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background-color: var(--background-primary);
+  flex-wrap: wrap;
+}
+
+.rag-chat-scope-label,
+.rag-chat-scope-hint,
+.rag-chat-scope-badge {
+  font-size: 12px;
+}
+
+.rag-chat-scope-label {
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.rag-chat-scope-select,
+.rag-chat-scope-input {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.rag-chat-scope-select {
+  padding: 6px 10px;
+}
+
+.rag-chat-scope-meta {
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 220px;
+  flex-wrap: wrap;
+}
+
+.rag-chat-scope-input-wrap {
+  flex: 1;
+  min-width: 180px;
+}
+
+.rag-chat-scope-input {
+  width: 100%;
+  padding: 6px 10px;
+}
+
+.rag-chat-scope-hint {
+  color: var(--text-muted);
+}
+
+.rag-chat-badge-row {
+  margin-bottom: 8px;
+}
+
+.rag-chat-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background-color: var(--background-modifier-hover);
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
 .dots {
   display: inline-block;
   position: relative;

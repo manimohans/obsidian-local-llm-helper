@@ -9,6 +9,7 @@ import {
 	PluginSettingTab,
 	Setting,
 	SuggestModal,
+	TFile,
 	View,
 	requestUrl,
 	setIcon,
@@ -17,7 +18,7 @@ import {
 } from "obsidian";
 import { generateAndAppendTags } from "./src/autoTagger";
 import { UpdateNoticeModal } from "./src/updateNoticeModal";
-import { RAGManager } from './src/rag';
+import { RAGManager, RAGQueryScope } from './src/rag';
 import { BacklinkGenerator } from './src/backlinkGenerator';
 import { RAGChatModal } from './src/ragChatModal';
 import { PromptPickerModal } from './src/promptPickerModal';
@@ -175,9 +176,41 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: 'rag-chat',
 			name: 'Chat: Notes (RAG)',
 			callback: () => {
-				new Notice("Make sure you have indexed your notes before using this feature.");
-				const ragChatModal = new RAGChatModal(this.app, this.settings, this.ragManager);
-				ragChatModal.open();
+				this.openRAGChat();
+			},
+		});
+
+		this.addCommand({
+			id: 'rag-chat-current-note',
+			name: 'Chat: Current note',
+			callback: () => {
+				const file = this.getActiveMarkdownFile();
+				if (!file) {
+					new Notice("Open a note first.");
+					return;
+				}
+				this.openRAGChat({
+					mode: 'paths',
+					paths: [file.path],
+					label: file.basename
+				});
+			},
+		});
+
+		this.addCommand({
+			id: 'rag-chat-current-folder',
+			name: 'Chat: Current folder',
+			callback: () => {
+				const file = this.getActiveMarkdownFile();
+				if (!file) {
+					new Notice("Open a note first.");
+					return;
+				}
+				this.openRAGChat({
+					mode: 'folder',
+					folder: this.getFolderPath(file),
+					label: this.getFolderPath(file) || 'Vault root'
+				});
 			},
 		});
 
@@ -358,8 +391,43 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Chat with notes (RAG)")
 					.setIcon("book-open")
 					.onClick(() => {
-						new Notice("Make sure you have indexed your notes before using this feature.");
-						new RAGChatModal(this.app, this.settings, this.ragManager).open();
+						this.openRAGChat();
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Chat with current note")
+					.setIcon("file-text")
+					.onClick(() => {
+						const file = this.getActiveMarkdownFile();
+						if (!file) {
+							new Notice("Open a note first.");
+							return;
+						}
+						this.openRAGChat({
+							mode: 'paths',
+							paths: [file.path],
+							label: file.basename
+						});
+					})
+			);
+
+			menu.addItem((item) =>
+				item
+					.setTitle("Chat with current folder")
+					.setIcon("folder-open")
+					.onClick(() => {
+						const file = this.getActiveMarkdownFile();
+						if (!file) {
+							new Notice("Open a note first.");
+							return;
+						}
+						this.openRAGChat({
+							mode: 'folder',
+							folder: this.getFolderPath(file),
+							label: this.getFolderPath(file) || 'Vault root'
+						});
 					})
 			);
 
@@ -592,6 +660,21 @@ export default class OLocalLLMPlugin extends Plugin {
 			}
 		}
 		return "";
+	}
+
+	private getActiveMarkdownFile(): TFile | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		return view?.file || null;
+	}
+
+	private getFolderPath(file: TFile): string {
+		const lastSlashIndex = file.path.lastIndexOf('/');
+		return lastSlashIndex === -1 ? '' : file.path.slice(0, lastSlashIndex);
+	}
+
+	private openRAGChat(initialScope?: RAGQueryScope) {
+		new Notice("Make sure you have indexed your notes before using this feature.");
+		new RAGChatModal(this.app, this.settings, this.ragManager, initialScope).open();
 	}
 
 	onunload() { }

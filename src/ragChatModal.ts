@@ -1,7 +1,8 @@
 import { App, Modal, TextComponent, ButtonComponent, Notice, DropdownComponent, setIcon, TFile } from "obsidian";
-import { OLocalLLMSettings } from "../main";
+import type OLocalLLMPlugin from "../main";
+import type { OLocalLLMSettings } from "../main";
 import { RAGManager, RAGQueryScope } from "./rag";
-import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
+import { type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext, getCurrentOrFallbackChatContext } from "./vaultAgent";
 
 type ScopeOption = "vault" | "current-note" | "current-folder" | "tag";
 
@@ -13,11 +14,14 @@ interface ParsedScopeOverride {
 export class RAGChatModal extends Modal {
 	private result: string = "";
 	private pluginSettings: OLocalLLMSettings;
+	private plugin: OLocalLLMPlugin;
 	private ragManager: RAGManager;
 	private submitButton: ButtonComponent;
 	private chatHistoryEl: HTMLElement;
 	private welcomeEl: HTMLElement | null = null;
 	private textInput: TextComponent;
+	private conversationHistory: ConversationEntry[] = [];
+	private initialChatContext: ChatEnvironmentContext;
 	private scopeSelect: DropdownComponent;
 	private scopeValueInput: TextComponent | null = null;
 	private scopeMetaEl: HTMLElement | null = null;
@@ -25,11 +29,13 @@ export class RAGChatModal extends Modal {
 	private scopeDraftValue: string = "";
 	private initialScope?: RAGQueryScope;
 
-	constructor(app: App, settings: OLocalLLMSettings, ragManager: RAGManager, initialScope?: RAGQueryScope) {
+	constructor(app: App, settings: OLocalLLMSettings, ragManager: RAGManager, plugin: OLocalLLMPlugin, initialScope?: RAGQueryScope) {
 		super(app);
 		this.pluginSettings = settings;
 		this.ragManager = ragManager;
+		this.plugin = plugin;
 		this.initialScope = initialScope;
+		this.initialChatContext = getActiveChatContext(app);
 		this.scopeOption = this.getOptionFromScope(initialScope);
 		if (initialScope?.mode === "tags" && initialScope.tags?.length) {
 			this.scopeDraftValue = initialScope.tags.map(tag => `#${tag.replace(/^#/, "")}`).join(", ");
@@ -226,54 +232,31 @@ export class RAGChatModal extends Modal {
 		this.scrollToBottom();
 
 		try {
-			const response = await this.ragManager.getRAGResponse(query, scope);
-
-			let responseContent = response.response;
-			if (this.pluginSettings.extractReasoningResponses) {
-				const markers = parseReasoningMarkers(this.pluginSettings.reasoningMarkers || "");
-				responseContent = extractActualResponse(responseContent, markers);
-			}
+			const contextSnapshot = getCurrentOrFallbackChatContext(this.app, this.initialChatContext);
+			const ragContext = await this.ragManager.getRelevantContext(query, scope);
+			const response = await this.plugin.vaultAgent.submitChat({
+				message: query,
+				conversationHistory: this.conversationHistory,
+				context: contextSnapshot,
+				ragContext: ragContext.context,
+				ragSources: ragContext.sources,
+			});
 
 			thinkingEl.remove();
 
-			const aiMsg = this.chatHistoryEl.createDiv({ cls: "rag-chat-message rag-chat-message-ai" });
-			const badgeRow = aiMsg.createDiv({ cls: "rag-chat-badge-row" });
-			badgeRow.createSpan({
-				text: this.describeResolvedScope(scope),
-				cls: "rag-chat-scope-badge"
-			});
-
-			const responseText = aiMsg.createDiv({ cls: "rag-chat-response-text" });
-			responseText.innerHTML = this.formatResponse(responseContent);
-
-			if (response.sources.length > 0) {
-				const sourcesEl = aiMsg.createDiv({ cls: "rag-chat-sources" });
-				sourcesEl.createEl("span", { text: "Sources:", cls: "rag-chat-sources-label" });
-				const sourcesList = sourcesEl.createDiv({ cls: "rag-chat-sources-list" });
-
-				for (const source of response.sources) {
-					const sourceItem = sourcesList.createDiv({ cls: "rag-chat-source-item" });
-					const sourceIcon = sourceItem.createSpan({ cls: "rag-chat-source-icon" });
-					setIcon(sourceIcon, "file-text");
-					sourceItem.createSpan({ text: source, cls: "rag-chat-source-name" });
-
-					sourceItem.addEventListener("click", () => {
-						const file = this.app.vault.getAbstractFileByPath(source);
-						if (file) {
-							this.app.workspace.openLinkText(source, "", false);
-						}
-					});
-				}
-			}
-
-			const copyBtn = aiMsg.createEl("button", { cls: "rag-chat-copy-btn" });
-			setIcon(copyBtn, "copy");
-			copyBtn.setAttribute("aria-label", "Copy response");
-			copyBtn.addEventListener("click", () => {
-				navigator.clipboard.writeText(responseContent).then(() => {
-					new Notice("Copied to clipboard");
-				});
-			});
+			const renderedMessage = this.plugin.vaultAgent.renderAgentResponse(
+				this.chatHistoryEl,
+				response,
+				contextSnapshot,
+				{
+					messageClassName: "rag-chat-message rag-chat-message-ai",
+					responseTextClassName: "rag-chat-response-text",
+					copyButtonClassName: "rag-chat-copy-btn",
+					badgeText: this.describeResolvedScope(scope),
+					scrollToBottom: () => this.scrollToBottom(),
+				},
+			);
+			this.updateConversationHistory(query, renderedMessage);
 
 			this.scrollToBottom();
 		} catch (error) {
@@ -286,6 +269,13 @@ export class RAGChatModal extends Modal {
 
 			console.error("RAG Chat Error:", error);
 			this.scrollToBottom();
+		}
+	}
+
+	private updateConversationHistory(prompt: string, response: string) {
+		this.conversationHistory.push({ prompt, response });
+		if (this.conversationHistory.length > this.pluginSettings.maxConvHistory) {
+			this.conversationHistory.shift();
 		}
 	}
 
@@ -451,6 +441,7 @@ export class RAGChatModal extends Modal {
 	}
 
 	private clearConversation() {
+		this.conversationHistory = [];
 		this.chatHistoryEl.empty();
 		this.showWelcomeMessage();
 	}

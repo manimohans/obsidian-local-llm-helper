@@ -157,6 +157,32 @@ export class RAGManager {
 		}
 	}
 
+	async getRelevantContext(query: string, scope?: RAGQueryScope): Promise<{ context: string; sources: string[] }> {
+		const indexedCount = this.getIndexedFilesCount();
+		if (indexedCount === 0) {
+			throw new Error("No notes indexed. Please index your notes first in Settings → Notes Index.");
+		}
+
+		const resolvedScope = this.normalizeScope(scope);
+		const docs = await this.searchDocuments(query, resolvedScope);
+		if (docs.length === 0) {
+			if (resolvedScope.mode === 'vault') {
+				throw new Error("No relevant content found. Try rephrasing your question.");
+			}
+			throw new Error(`No indexed content matched the selected scope (${this.describeScope(resolvedScope)}).`);
+		}
+
+		const sources = [...new Set(docs.map(doc => doc.metadata.source))];
+		const context = docs
+			.map((doc, index) => {
+				const source = doc.metadata.source || doc.metadata.fileName || `Note ${index + 1}`;
+				return `[Source: ${source}]\n${doc.pageContent}`;
+			})
+			.join('\n\n---\n\n');
+
+		return { context, sources };
+	}
+
 	async getRAGResponse(query: string, scope?: RAGQueryScope): Promise<{ response: string, sources: string[] }> {
 		const indexedCount = this.getIndexedFilesCount();
 		if (indexedCount === 0) {

@@ -27,6 +27,7 @@ import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict, modifyPromp
 import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customPrompts';
 import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
 import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
+import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext, getCurrentOrFallbackChatContext } from './src/vaultAgent';
 
 // Remember to rename these classes and interfaces!
 
@@ -57,11 +58,8 @@ export interface OLocalLLMSettings {
 	ragTopK: number;
 	autoIndexIntervalMinutes: number;
 	autoNotice: boolean;
-}
-
-interface ConversationEntry {
-	prompt: string;
-	response: string;
+	enableVaultActions: boolean;
+	showAgentDebug: boolean;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
@@ -91,6 +89,8 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	ragTopK: 5,
 	autoIndexIntervalMinutes: 0,   // 0 = disabled
 	autoNotice: false,
+	enableVaultActions: false,
+	showAgentDebug: false,
 };
 
 function normalizeServerAddress(address: string): string {
@@ -111,6 +111,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	autoIndexTimer: number | undefined;
 	isIndexing: boolean = false;
 	public ragManager: RAGManager;
+	public vaultAgent: VaultAgentService;
 	private backlinkGenerator: BacklinkGenerator;
 	public personasDict: PersonasDict = {};
 	private registeredPromptCommands: Set<string> = new Set();
@@ -147,6 +148,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		console.log('🧠 LLM Helper: Initializing RAGManager...');
 		// Initialize RAGManager
 		this.ragManager = new RAGManager(this.app.vault, this.settings, this);
+		this.vaultAgent = new VaultAgentService(this.app, this);
 		
 		// Initialize RAGManager and show user notification about loaded data
 		await this.ragManager.initialize();
@@ -709,7 +711,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	public openRAGChat(initialScope?: RAGQueryScope) {
 		new Notice("Make sure you have indexed your notes before using this feature.");
-		new RAGChatModal(this.app, this.settings, this.ragManager, initialScope).open();
+		new RAGChatModal(this.app, this.settings, this.ragManager, this, initialScope).open();
 	}
 
 	async activateRelatedNotesView(): Promise<void> {
@@ -1435,6 +1437,30 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
+		new Setting(containerEl)
+			.setName("Vault Actions")
+			.setDesc("Allow chat to propose note writes for manual approval. No note is changed until you approve the action card.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableVaultActions)
+					.onChange(async (value) => {
+						this.plugin.settings.enableVaultActions = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Show Vault Actions debug JSON")
+			.setDesc("Show raw <vault-actions> JSON in chat responses for troubleshooting.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.showAgentDebug)
+					.onChange(async (value) => {
+						this.plugin.settings.showAgentDebug = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
 		// ═══════════════════════════════════════════════════════════
 		// OUTPUT
 		// ═══════════════════════════════════════════════════════════
@@ -2069,12 +2095,14 @@ export class LLMChatModal extends Modal {
 	pluginSettings: OLocalLLMSettings;
 	plugin: OLocalLLMPlugin;
 	conversationHistory: ConversationEntry[] = [];
+	private initialChatContext: ChatEnvironmentContext;
 	submitButton: ButtonComponent;
 
 	constructor(app: App, plugin: OLocalLLMPlugin) {
 		super(app);
 		this.plugin = plugin;
 		this.pluginSettings = plugin.settings;
+		this.initialChatContext = getActiveChatContext(app);
 	}
 
 	onOpen() {
@@ -2162,12 +2190,11 @@ export class LLMChatModal extends Modal {
 		if (chatHistoryEl) {
 			await processChatInput(
 				this.result,
-				this.pluginSettings.personas,
 				this.contentEl,
 				chatHistoryEl as HTMLElement,
 				this.conversationHistory,
-				this.pluginSettings,
-				this.plugin.personasDict
+				this.plugin,
+				this.initialChatContext
 			);
 			this.result = ""; // Clear user input field
 			const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
@@ -2187,109 +2214,40 @@ export class LLMChatModal extends Modal {
 	}
 }
 
-async function processChatInput(text: string, personas: string, chatContainer: HTMLElement, chatHistoryEl: HTMLElement, conversationHistory: ConversationEntry[], pluginSettings: OLocalLLMSettings, personasDict: PersonasDict) {
-	const { contentEl } = this; // Assuming 'this' refers to the LLMChatModal instance
-
-	// Add user's question to conversation history
-	conversationHistory.push({ prompt: text, response: "" });
-	if (chatHistoryEl) {
-		const chatElement = document.createElement('div');
-		chatElement.classList.add('llmChatMessageStyleUser');
-		chatElement.innerHTML = text;
-		chatHistoryEl.appendChild(chatElement);
-	}
+async function processChatInput(
+	text: string,
+	chatContainer: HTMLElement,
+	chatHistoryEl: HTMLElement,
+	conversationHistory: ConversationEntry[],
+	plugin: OLocalLLMPlugin,
+	initialChatContext: ChatEnvironmentContext,
+) {
+	const userMessageEl = chatHistoryEl.createDiv({ cls: "llmChatMessageStyleUser" });
+	userMessageEl.setText(text);
 
 	showThinkingIndicator(chatHistoryEl);
 	scrollToBottom(chatContainer);
 
-	text = modifyPrompt(text, personas, personasDict);
-	console.log(text);
-
 	try {
-		const body = {
-			model: pluginSettings.llmModel,
-			messages: [
-				{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
-				...conversationHistory.slice(-pluginSettings.maxConvHistory).reduce((acc, entry) => {
-					acc.push({ role: "user", content: entry.prompt });
-					acc.push({ role: "assistant", content: entry.response });
-					return acc;
-				}, [] as { role: string; content: string }[]),
-				{ role: "user", content: text },
-			],
-			temperature: pluginSettings.temperature,
-			max_tokens: pluginSettings.maxTokens,
-			stream: false, // Set to false for chat window
-		};
-
-		const chatHeaders: Record<string, string> = { "Content-Type": "application/json" };
-		if (pluginSettings.openAIApiKey && pluginSettings.openAIApiKey !== "not-needed") {
-			chatHeaders["Authorization"] = `Bearer ${pluginSettings.openAIApiKey}`;
-		}
-		const response = await requestUrl({
-			url: `${pluginSettings.serverAddress}/v1/chat/completions`,
-			method: "POST",
-			headers: chatHeaders,
-			body: JSON.stringify(body),
+		const contextSnapshot = getCurrentOrFallbackChatContext(plugin.app, initialChatContext);
+		const response = await plugin.vaultAgent.submitChat({
+			message: text,
+			conversationHistory,
+			context: contextSnapshot,
 		});
 
-		const statusCode = response.status;
-
-		if (statusCode >= 200 && statusCode < 300) {
-			const data = await response.json;
-			let llmResponse = data.choices[0].message.content;
-
-			// Strip reasoning markers if enabled
-			if (pluginSettings.extractReasoningResponses) {
-				const markers = parseReasoningMarkers(pluginSettings.reasoningMarkers || '');
-				llmResponse = extractActualResponse(llmResponse, markers);
-			}
-
-			// Convert LLM response to HTML
-			let formattedResponse = llmResponse;
-			//conver to html - bold
-			formattedResponse = formattedResponse.replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
-			formattedResponse = formattedResponse.replace(/_(.*?)_/g, "<i>$1</i>");
-			formattedResponse = formattedResponse.replace(/\n\n/g, "<br><br>");
-
-			console.log("formattedResponse", formattedResponse);
-
-			// Create response container
-			const responseContainer = document.createElement('div');
-			responseContainer.classList.add('llmChatMessageStyleAI');
-
-			// Create response text element
-			const responseTextEl = document.createElement('div');
-			responseTextEl.innerHTML = formattedResponse;
-			responseContainer.appendChild(responseTextEl);
-
-			// Create copy button
-			const copyButton = document.createElement('button');
-			copyButton.classList.add('copy-button');
-			setIcon(copyButton, 'copy');
-			copyButton.addEventListener('click', () => {
-				navigator.clipboard.writeText(llmResponse).then(() => {
-					new Notice('Copied to clipboard!');
-				});
-			});
-			responseContainer.appendChild(copyButton);
-
-			// Add response container to chat history
-			chatHistoryEl.appendChild(responseContainer);
-
-			// Add LLM response to conversation history with Markdown
-			updateConversationHistory(text, formattedResponse, conversationHistory, pluginSettings.maxConvHistory);
-
-			hideThinkingIndicator(chatHistoryEl);
-
-			// Scroll to bottom after response is generated
-			scrollToBottom(chatContainer);
-
-		} else {
-			throw new Error(
-				"Error getting response from LLM server: " + response.text
-			);
-		}
+		hideThinkingIndicator(chatHistoryEl);
+		const renderedMessage = plugin.vaultAgent.renderAgentResponse(
+			chatHistoryEl,
+			response,
+			contextSnapshot,
+			{
+				messageClassName: "llmChatMessageStyleAI",
+				scrollToBottom: () => scrollToBottom(chatContainer),
+			},
+		);
+		updateConversationHistory(text, renderedMessage, conversationHistory, plugin.settings.maxConvHistory);
+		scrollToBottom(chatContainer);
 	} catch (error) {
 		console.error("Error during request:", error);
 		const errMsg = error instanceof Error ? error.message : String(error);
@@ -2300,7 +2258,6 @@ async function processChatInput(text: string, personas: string, chatContainer: H
 		}
 		hideThinkingIndicator(chatHistoryEl);
 	}
-
 }
 
 function showThinkingIndicator(chatHistoryEl: HTMLElement) {

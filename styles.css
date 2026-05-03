@@ -707,6 +707,79 @@
     color: var(--text-accent);
 }
 
+.vault-action-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.vault-action-card {
+    padding: 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background-color: var(--background-primary);
+}
+
+.vault-action-header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+}
+
+.vault-action-description {
+    color: var(--text-muted);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.vault-action-preview,
+.vault-action-debug {
+    max-height: 220px;
+    overflow: auto;
+    margin: 8px 0;
+    padding: 10px;
+    border-radius: 8px;
+    background-color: var(--background-secondary-alt);
+    color: var(--text-normal);
+    white-space: pre-wrap;
+}
+
+.vault-action-status {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.vault-action-status.is-invalid {
+    color: var(--text-error);
+}
+
+.vault-action-status.is-approved {
+    color: var(--text-success);
+}
+
+.vault-action-status.is-rejected {
+    color: var(--text-muted);
+}
+
+.vault-action-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.llmChatMessageStyleAI p,
+.rag-chat-response-text p {
+    margin: 0 0 8px 0;
+}
+
+.llmChatMessageStyleAI p:last-child,
+.rag-chat-response-text p:last-child {
+    margin-bottom: 0;
+}
+
 /* Copy button */
 .rag-chat-copy-btn {
     position: absolute;

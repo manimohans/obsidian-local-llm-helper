@@ -9,6 +9,6 @@
 	"fundingUrl": "https://buymeacoffee.com/manee",
 	"isDesktopOnly": false,
 	"css": [
-        "style.css"
+        "styles.css"
     	]	
 }

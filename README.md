@@ -58,6 +58,13 @@ Index your vault for semantic search and AI-powered Q&A:
 - **Content Preprocessing** - Strips frontmatter and cleans markdown
 - **Multiple Providers** - Works with any OpenAI-compatible embeddings endpoint
 
+### 🧭 Related Notes Sidebar
+
+Keep semantic context visible while you write:
+- **Auto-updating sidebar** for the current note or selected text
+- **Preview related notes** with similarity scores
+- **Open any match instantly** or select several notes and jump straight into scoped RAG chat
+
 <img src="assets/rag-settings.png" width="600" alt="RAG Settings">
 
 ### 🌐 Web Integration
@@ -167,8 +174,16 @@ Go to Settings → Local LLM Helper and choose your provider:
 1. Command Palette → "Notes: Index notes for RAG"
 2. Wait for indexing to complete
 3. Command Palette → "Chat: RAG Chat" to chat with your notes
+4. Command Palette → "Notes: Open related notes" to keep nearby notes visible while writing
 
 ## Changelog
+
+### Unreleased
+
+**Related Notes Sidebar**
+- Added a persistent "Related Notes" workspace view
+- The sidebar updates from the current note or selected text
+- Open matching notes directly or start RAG chat with selected related notes
 
 ### v2.4.0
 

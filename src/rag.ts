@@ -51,6 +51,13 @@ export interface RAGQueryScope {
 	label?: string;
 }
 
+export interface RelatedNoteResult {
+	path: string;
+	fileName: string;
+	preview: string;
+	score: number;
+}
+
 // Chunking configuration
 const CHUNK_SIZE = 800;        // Smaller chunks for better precision
 const CHUNK_OVERLAP = 100;     // Overlap to preserve context
@@ -619,27 +626,82 @@ Answer:`
 
 	async findSimilarNotes(query: string): Promise<string> {
 		try {
-			const similarDocs = await this.vectorStore.similaritySearch(query, this.settings.ragTopK);
-
-			if (similarDocs.length === 0) {
+			const similarNotes = await this.findRelatedNotes(query);
+			if (similarNotes.length === 0) {
 				return '';
 			}
 
-			const uniqueBacklinks = new Map<string, string>();
-
-			for (const doc of similarDocs) {
-				const source = doc.metadata.source;
-				if (!uniqueBacklinks.has(source)) {
-					const preview = doc.pageContent.substring(0, 100).replace(/\n/g, ' ');
-					uniqueBacklinks.set(source, `[[${source}]]: ${preview}...`);
-				}
-			}
-
-			return Array.from(uniqueBacklinks.values()).join('\n');
+			return similarNotes
+				.map((note) => `[[${note.path}]]: ${note.preview}`)
+				.join('\n');
 		} catch (error) {
 			console.error('Error in findSimilarNotes:', error);
 			return '';
 		}
+	}
+
+	async findRelatedNotes(
+		query: string,
+		options?: {
+			scope?: RAGQueryScope;
+			excludePaths?: string[];
+			limit?: number;
+		}
+	): Promise<RelatedNoteResult[]> {
+		const trimmedQuery = query.trim();
+		if (!trimmedQuery) {
+			return [];
+		}
+
+		const scope = this.normalizeScope(options?.scope);
+		const vectors = scope.mode === 'vault'
+			? this.getScopedVectors({ mode: 'vault', label: 'Entire vault' })
+			: this.getScopedVectors(scope);
+
+		if (vectors.length === 0) {
+			return [];
+		}
+
+		const excludedPaths = new Set((options?.excludePaths || []).filter(Boolean));
+		const limit = options?.limit || this.settings.ragTopK;
+		const queryEmbedding = await this.embeddings.embedQuery(trimmedQuery);
+		const bestByPath = new Map<string, RelatedNoteResult>();
+
+		for (const item of vectors) {
+			const sourcePath = item.metadata?.source;
+			if (!sourcePath || excludedPaths.has(sourcePath)) {
+				continue;
+			}
+
+			const score = this.cosineSimilarity(queryEmbedding, item.embedding);
+			if (score <= 0) {
+				continue;
+			}
+
+			const preview = this.buildPreview(item.content || '');
+			const existing = bestByPath.get(sourcePath);
+			if (!existing || score > existing.score) {
+				bestByPath.set(sourcePath, {
+					path: sourcePath,
+					fileName: item.metadata?.fileName || sourcePath,
+					preview,
+					score
+				});
+			}
+		}
+
+		return Array.from(bestByPath.values())
+			.sort((a, b) => b.score - a.score)
+			.slice(0, limit);
+	}
+
+	private buildPreview(content: string): string {
+		const normalized = content.replace(/\s+/g, ' ').trim();
+		if (normalized.length <= 140) {
+			return normalized;
+		}
+
+		return `${normalized.slice(0, 137)}...`;
 	}
 
 	getIndexedFilesCount(): number {

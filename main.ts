@@ -15,6 +15,7 @@ import {
 	setIcon,
 	TextComponent,
 	ButtonComponent,
+	WorkspaceLeaf,
 } from "obsidian";
 import { generateAndAppendTags } from "./src/autoTagger";
 import { UpdateNoticeModal } from "./src/updateNoticeModal";
@@ -25,6 +26,7 @@ import { PromptPickerModal } from './src/promptPickerModal';
 import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict, modifyPrompt } from './src/personas';
 import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customPrompts';
 import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
+import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
 
 // Remember to rename these classes and interfaces!
 
@@ -112,6 +114,9 @@ export default class OLocalLLMPlugin extends Plugin {
 	private backlinkGenerator: BacklinkGenerator;
 	public personasDict: PersonasDict = {};
 	private registeredPromptCommands: Set<string> = new Set();
+	private relatedNotesRefreshTimer: number | null = null;
+	private lastRelatedNotesContext: RelatedNotesContext | null = null;
+	private lastMarkdownLeaf: WorkspaceLeaf | null = null;
 
 	async checkForUpdates() {
 		const currentVersion = this.manifest.version;
@@ -155,12 +160,24 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		// Initialize BacklinkGenerator
 		this.backlinkGenerator = new BacklinkGenerator(this.ragManager, this.app.vault);
+		this.registerView(
+			RELATED_NOTES_VIEW_TYPE,
+			(leaf: WorkspaceLeaf) => new RelatedNotesView(leaf, this)
+		);
 
 		// Add command for RAG Backlinks
 		this.addCommand({
 			id: 'generate-rag-backlinks',
 			name: 'Notes: Generate backlinks',
 			callback: this.handleGenerateBacklinks.bind(this),
+		});
+
+		this.addCommand({
+			id: 'open-related-notes-view',
+			name: 'Notes: Open related notes',
+			callback: () => {
+				void this.activateRelatedNotesView();
+			},
 		});
 
 		// Add diagnostic command
@@ -213,6 +230,24 @@ export default class OLocalLLMPlugin extends Plugin {
 				});
 			},
 		});
+
+		this.registerEvent(this.app.workspace.on('file-open', (file) => {
+			if (file instanceof TFile) {
+				void this.captureRelatedNotesContext().then(() => {
+					this.queueRelatedNotesRefresh(0);
+				});
+				return;
+			}
+			this.queueRelatedNotesRefresh(150);
+		}));
+		this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf: WorkspaceLeaf | null) => {
+			if (leaf?.view instanceof MarkdownView) {
+				this.lastMarkdownLeaf = leaf;
+				void this.captureRelatedNotesContext(leaf.view).then(() => {
+					this.queueRelatedNotesRefresh(0);
+				});
+			}
+		}));
 
 		this.addCommand({
 			id: "summarize-selected-text",
@@ -672,12 +707,146 @@ export default class OLocalLLMPlugin extends Plugin {
 		return lastSlashIndex === -1 ? '' : file.path.slice(0, lastSlashIndex);
 	}
 
-	private openRAGChat(initialScope?: RAGQueryScope) {
+	public openRAGChat(initialScope?: RAGQueryScope) {
 		new Notice("Make sure you have indexed your notes before using this feature.");
 		new RAGChatModal(this.app, this.settings, this.ragManager, initialScope).open();
 	}
 
-	onunload() { }
+	async activateRelatedNotesView(): Promise<void> {
+		await this.captureRelatedNotesContext();
+
+		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE)[0];
+		const leaf = existingLeaf || this.app.workspace.getRightLeaf(false);
+		if (!leaf) {
+			new Notice("Could not open Related Notes view.");
+			return;
+		}
+
+		await leaf.setViewState({
+			type: RELATED_NOTES_VIEW_TYPE,
+			active: true,
+		});
+		this.app.workspace.revealLeaf(leaf);
+		await this.refreshRelatedNotesView();
+	}
+
+	async refreshRelatedNotesView(): Promise<void> {
+		const leaves = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE);
+		if (leaves.length === 0) {
+			return;
+		}
+
+		const context = await this.getRelatedNotesContext();
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof RelatedNotesView) {
+				await view.refresh(context);
+			}
+		}
+	}
+
+	async getRelatedNotesContext(): Promise<RelatedNotesContext | null> {
+		const context = await this.buildRelatedNotesContext(this.getRelatedNotesMarkdownView());
+		if (context) {
+			this.lastRelatedNotesContext = context;
+			return context;
+		}
+
+		return this.lastRelatedNotesContext;
+	}
+
+	async openFileByPath(path: string): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(path);
+		if (!(file instanceof TFile)) {
+			new Notice("Note not found.");
+			return;
+		}
+
+		await this.app.workspace.getLeaf(true).openFile(file);
+	}
+
+	onunload() {
+		if (this.relatedNotesRefreshTimer !== null) {
+			window.clearTimeout(this.relatedNotesRefreshTimer);
+			this.relatedNotesRefreshTimer = null;
+		}
+
+		this.app.workspace.detachLeavesOfType(RELATED_NOTES_VIEW_TYPE);
+	}
+
+	private truncateRelatedQuery(text: string): string {
+		const normalized = text.replace(/\s+/g, ' ').trim();
+		return normalized.length <= 4000 ? normalized : normalized.slice(0, 4000);
+	}
+
+	private queueRelatedNotesRefresh(delayMs: number): void {
+		if (this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE).length === 0) {
+			return;
+		}
+
+		if (this.relatedNotesRefreshTimer !== null) {
+			window.clearTimeout(this.relatedNotesRefreshTimer);
+		}
+
+		this.relatedNotesRefreshTimer = window.setTimeout(() => {
+			this.relatedNotesRefreshTimer = null;
+			void this.refreshRelatedNotesView();
+		}, delayMs);
+	}
+
+	private async captureRelatedNotesContext(view?: MarkdownView | null): Promise<void> {
+		const context = await this.buildRelatedNotesContext(
+			view !== undefined ? view : this.getRelatedNotesMarkdownView()
+		);
+		if (context) {
+			this.lastRelatedNotesContext = context;
+		}
+	}
+
+	private getRelatedNotesMarkdownView(): MarkdownView | null {
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if (activeView?.file) {
+			this.lastMarkdownLeaf = activeView.leaf;
+			return activeView;
+		}
+
+		const lastView = this.lastMarkdownLeaf?.view;
+		if (lastView instanceof MarkdownView && lastView.file) {
+			return lastView;
+		}
+
+		return null;
+	}
+
+	private async buildRelatedNotesContext(view: MarkdownView | null): Promise<RelatedNotesContext | null> {
+		const file = view?.file;
+		if (!view || !file) {
+			return null;
+		}
+
+		const selection = view.getMode() === "source" && "editor" in view
+			? view.editor.getSelection().trim()
+			: "";
+		if (selection.length >= 20) {
+			return {
+				query: this.truncateRelatedQuery(selection),
+				description: `selection in ${file.basename}`,
+				sourcePath: file.path
+			};
+		}
+
+		const rawContent = await this.app.vault.cachedRead(file);
+		const cleanedContent = rawContent.trim();
+		if (!cleanedContent) {
+			return null;
+		}
+
+		return {
+			query: this.truncateRelatedQuery(cleanedContent),
+			description: `current note ${file.basename}`,
+			sourcePath: file.path
+		};
+	}
 
 	startAutoIndexTimer() {
 		if (this.autoIndexTimer) {
@@ -744,6 +913,8 @@ export default class OLocalLLMPlugin extends Plugin {
 		if (this.ragManager) {
 			this.ragManager.updateSettings(this.settings);
 		}
+
+		this.queueRelatedNotesRefresh(150);
 	}
 
 	rebuildPersonas() {
@@ -806,6 +977,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				console.log(`Indexing progress: ${progress * 100}%`);
 			});
 			new Notice('Notes indexed successfully!');
+			this.queueRelatedNotesRefresh(150);
 		} catch (error) {
 			console.error('Error indexing notes:', error);
 			new Notice('Failed to index notes. Check console for details.');

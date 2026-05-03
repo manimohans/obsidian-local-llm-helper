@@ -1,4 +1,3 @@
-import { Embeddings, EmbeddingsParams } from "@langchain/core/embeddings";
 import { requestUrl } from "obsidian";
 
 /**
@@ -17,7 +16,7 @@ import { requestUrl } from "obsidian";
  * (observed on LM Studio with bge-m3 / Qwen3 embedding models).
  */
 
-interface OpenAIEmbeddingsOptions extends EmbeddingsParams {
+interface OpenAIEmbeddingsOptions {
 	batchSize?: number;
 	stripNewLines?: boolean;
 	timeoutMs?: number;
@@ -36,7 +35,7 @@ interface EmbeddingResponse {
 	usage?: { prompt_tokens: number; total_tokens: number };
 }
 
-export class OpenAIEmbeddings extends Embeddings {
+export class OpenAIEmbeddings {
 	private apiKey: string;
 	private modelName: string;
 	private baseURL: string;
@@ -50,7 +49,6 @@ export class OpenAIEmbeddings extends Embeddings {
 		baseURL: string,
 		options: OpenAIEmbeddingsOptions = {}
 	) {
-		super(options);
 		this.apiKey = apiKey || "not-needed";
 		this.modelName = modelName;
 		this.baseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL}/v1`;

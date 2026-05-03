@@ -4,11 +4,7 @@
   "description": "Local LLM helper plugin for Obsidian",
   "main": "main.js",
   "dependencies": {
-    "@langchain/core": "^0.3.80",
-    "@langchain/ollama": "^0.1.1",
-    "@langchain/openai": "^0.3.0",
     "axios": "^1.7.4",
-    "langchain": "^0.3.37",
     "obsidian": "^1.5.7-1",
     "tslib": "^2.4.0"
   },

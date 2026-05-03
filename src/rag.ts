@@ -1,11 +1,45 @@
-import { Document } from 'langchain/document';
-import { MemoryVectorStore } from 'langchain/vectorstores/memory';
-import { TFile, Vault, Plugin, App } from 'obsidian';
+import { TFile, Vault, Plugin, App, requestUrl } from 'obsidian';
 import { OpenAIEmbeddings } from './openAIEmbeddings';
-import { ChatOpenAI } from "@langchain/openai";
-import { createStuffDocumentsChain } from "langchain/chains/combine_documents";
-import { PromptTemplate } from "@langchain/core/prompts";
 import { OLocalLLMSettings } from '../main';
+
+interface Document {
+	pageContent: string;
+	metadata: EmbeddingMetadata;
+}
+
+interface VectorEntry {
+	document: Document;
+	vector: number[];
+}
+
+class InMemoryVectorStore {
+	entries: VectorEntry[] = [];
+
+	constructor(private embedder: OpenAIEmbeddings) {}
+
+	setEmbedder(embedder: OpenAIEmbeddings): void {
+		this.embedder = embedder;
+	}
+
+	async addDocuments(docs: Document[]): Promise<void> {
+		if (docs.length === 0) {
+			return;
+		}
+
+		const vectors = await this.embedder.embedDocuments(docs.map(doc => doc.pageContent));
+		for (let i = 0; i < docs.length; i++) {
+			this.entries.push({ document: docs[i], vector: vectors[i] });
+		}
+	}
+
+	removeBySource(path: string): void {
+		this.entries = this.entries.filter(entry => entry.document.metadata.source !== path);
+	}
+
+	clear(): void {
+		this.entries = [];
+	}
+}
 
 interface StoredEmbedding {
 	id: string;
@@ -64,7 +98,7 @@ const CHUNK_OVERLAP = 100;     // Overlap to preserve context
 const MIN_CONTENT_LENGTH = 50; // Skip files with less content
 
 export class RAGManager {
-	private vectorStore: MemoryVectorStore;
+	private vectorStore: InMemoryVectorStore;
 	private embeddings: OpenAIEmbeddings;
 	private fileIndex: Map<string, FileIndex> = new Map();
 	private provider: string;
@@ -82,7 +116,7 @@ export class RAGManager {
 			this.settings.embeddingModelName,
 			this.settings.serverAddress
 		);
-		this.vectorStore = new MemoryVectorStore(this.embeddings);
+		this.vectorStore = new InMemoryVectorStore(this.embeddings);
 	}
 
 	async initialize(): Promise<void> {
@@ -114,8 +148,8 @@ export class RAGManager {
 			settings.serverAddress
 		);
 
-		// Update the vector store's embeddings reference so new indexing uses the current model
-		(this.vectorStore as any).embeddings = this.embeddings;
+		// Update the vector store's embedder reference so new indexing uses the current model
+		this.vectorStore.setEmbedder(this.embeddings);
 
 		// Only warn if embedding-related settings changed
 		if (modelChanged || serverChanged) {
@@ -139,39 +173,53 @@ export class RAGManager {
 				throw new Error(`No indexed content matched the selected scope (${this.describeScope(resolvedScope)}).`);
 			}
 
-			const baseURL = this.settings.serverAddress.endsWith('/v1')
-				? this.settings.serverAddress
-				: `${this.settings.serverAddress}/v1`;
+			const context = docs
+				.map(doc => `[${doc.metadata.fileName}]\n${doc.pageContent}`)
+				.join('\n\n---\n\n');
 
-			const llm = new ChatOpenAI({
-				openAIApiKey: this.settings.openAIApiKey || 'not-needed',
-				modelName: this.settings.llmModel,
-				temperature: this.settings.temperature,
-				configuration: { baseURL },
-			});
-
-			const promptTemplate = PromptTemplate.fromTemplate(
-				`You are a helpful assistant answering questions based on the user's notes.
+			const systemPrompt = `You are a helpful assistant answering questions based on the user's notes.
 Use the context below to answer the question. If the context doesn't contain relevant information, say so.
 Be concise and cite specific notes when possible.
 
 Context:
-{context}
+${context}`;
 
-Question: {input}
+			const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+			if (this.settings.openAIApiKey && this.settings.openAIApiKey !== 'not-needed') {
+				headers['Authorization'] = `Bearer ${this.settings.openAIApiKey}`;
+			}
+			const baseURL = this.settings.serverAddress.endsWith('/v1')
+				? this.settings.serverAddress
+				: `${this.settings.serverAddress}/v1`;
 
-Answer:`
-			);
-
-			const documentChain = await createStuffDocumentsChain({ llm, prompt: promptTemplate });
-			const result = await documentChain.invoke({
-				input: query,
-				context: docs,
+			const response = await requestUrl({
+				url: `${baseURL}/chat/completions`,
+				method: 'POST',
+				headers,
+				body: JSON.stringify({
+					model: this.settings.llmModel,
+					temperature: this.settings.temperature,
+					messages: [
+						{ role: 'system', content: systemPrompt },
+						{ role: 'user', content: query },
+					],
+				}),
+				throw: false,
 			});
-			const sources = [...new Set(docs.map((doc: Document) => doc.metadata.source))];
+
+			if (response.status < 200 || response.status >= 300) {
+				throw new Error(`Chat completion failed (HTTP ${response.status}): ${response.text?.slice(0, 300) ?? ''}`);
+			}
+
+			const answer = response.json?.choices?.[0]?.message?.content;
+			if (typeof answer !== 'string') {
+				throw new Error('Chat completion returned an unexpected response shape.');
+			}
+
+			const sources = [...new Set(docs.map(doc => doc.metadata.source))];
 
 			return {
-				response: result as string,
+				response: answer,
 				sources: sources
 			};
 		} catch (error) {
@@ -181,36 +229,26 @@ Answer:`
 	}
 
 	private async searchDocuments(query: string, scope: RAGQueryScope): Promise<Document[]> {
-		if (scope.mode === 'vault') {
-			return this.vectorStore.similaritySearch(query, this.settings.ragTopK);
-		}
-
-		const filteredVectors = this.getScopedVectors(scope);
-		if (filteredVectors.length === 0) {
+		const entries = this.getScopedEntries(scope);
+		if (entries.length === 0) {
 			return [];
 		}
 
 		const queryEmbedding = await this.embeddings.embedQuery(query);
-		return filteredVectors
-			.map((item: any) => ({
-				score: this.cosineSimilarity(queryEmbedding, item.embedding),
-				document: new Document({
-					pageContent: item.content,
-					metadata: item.metadata
-				})
+		return entries
+			.map(entry => ({
+				score: this.cosineSimilarity(queryEmbedding, entry.vector),
+				document: entry.document
 			}))
 			.sort((a, b) => b.score - a.score)
 			.slice(0, this.settings.ragTopK)
 			.map(item => item.document);
 	}
 
-	private getScopedVectors(scope: RAGQueryScope): any[] {
-		const memoryVectors = (this.vectorStore as any).memoryVectors;
-		if (!memoryVectors || !Array.isArray(memoryVectors)) {
-			return [];
-		}
-
-		return memoryVectors.filter((item: any) => this.matchesScope(item.metadata?.source, scope));
+	private getScopedEntries(scope: RAGQueryScope): VectorEntry[] {
+		return this.vectorStore.entries.filter(entry =>
+			this.matchesScope(entry.document.metadata.source, scope)
+		);
 	}
 
 	private matchesScope(sourcePath: string | undefined, scope: RAGQueryScope): boolean {
@@ -443,24 +481,19 @@ Answer:`
 		const fileName = file.basename;
 		const now = Date.now();
 
-		// Create documents and add to vector store
-		for (let i = 0; i < chunks.length; i++) {
-			const metadata: EmbeddingMetadata = {
+		const docs: Document[] = chunks.map((content, i) => ({
+			pageContent: content,
+			metadata: {
 				source: file.path,
 				fileName: fileName,
 				chunk: i,
 				totalChunks: chunks.length,
 				indexed: now,
 				fileModified: file.stat.mtime
-			};
+			}
+		}));
 
-			const doc = new Document({
-				pageContent: chunks[i],
-				metadata: metadata
-			});
-
-			await this.vectorStore.addDocuments([doc]);
-		}
+		await this.vectorStore.addDocuments(docs);
 
 		// Update file index
 		this.fileIndex.set(file.path, {
@@ -473,18 +506,8 @@ Answer:`
 	}
 
 	private removeFileFromIndex(path: string): void {
-		// Remove from file index
 		this.fileIndex.delete(path);
-
-		// Remove embeddings from vector store
-		const memoryVectors = (this.vectorStore as any).memoryVectors;
-		if (memoryVectors && Array.isArray(memoryVectors)) {
-			(this.vectorStore as any).memoryVectors = memoryVectors.filter(
-				(v: any) => v.metadata?.source !== path
-			);
-		}
-
-		// Remove from cache
+		this.vectorStore.removeBySource(path);
 		this.cachedEmbeddings.delete(path);
 	}
 
@@ -654,11 +677,8 @@ Answer:`
 		}
 
 		const scope = this.normalizeScope(options?.scope);
-		const vectors = scope.mode === 'vault'
-			? this.getScopedVectors({ mode: 'vault', label: 'Entire vault' })
-			: this.getScopedVectors(scope);
-
-		if (vectors.length === 0) {
+		const entries = this.getScopedEntries(scope);
+		if (entries.length === 0) {
 			return [];
 		}
 
@@ -667,23 +687,23 @@ Answer:`
 		const queryEmbedding = await this.embeddings.embedQuery(trimmedQuery);
 		const bestByPath = new Map<string, RelatedNoteResult>();
 
-		for (const item of vectors) {
-			const sourcePath = item.metadata?.source;
+		for (const entry of entries) {
+			const sourcePath = entry.document.metadata.source;
 			if (!sourcePath || excludedPaths.has(sourcePath)) {
 				continue;
 			}
 
-			const score = this.cosineSimilarity(queryEmbedding, item.embedding);
+			const score = this.cosineSimilarity(queryEmbedding, entry.vector);
 			if (score <= 0) {
 				continue;
 			}
 
-			const preview = this.buildPreview(item.content || '');
+			const preview = this.buildPreview(entry.document.pageContent || '');
 			const existing = bestByPath.get(sourcePath);
 			if (!existing || score > existing.score) {
 				bestByPath.set(sourcePath, {
 					path: sourcePath,
-					fileName: item.metadata?.fileName || sourcePath,
+					fileName: entry.document.metadata.fileName || sourcePath,
 					preview,
 					score
 				});
@@ -716,19 +736,12 @@ Answer:`
 		try {
 			console.log('💾 Saving embeddings...');
 
-			const storedEmbeddings: StoredEmbedding[] = [];
-			const vectorStoreData = (this.vectorStore as any).memoryVectors;
-
-			if (vectorStoreData && Array.isArray(vectorStoreData)) {
-				for (const item of vectorStoreData) {
-					storedEmbeddings.push({
-						id: `${item.metadata?.source || 'unknown'}_${item.metadata?.chunk || 0}`,
-						content: item.content,
-						vector: item.embedding,
-						metadata: item.metadata
-					});
-				}
-			}
+			const storedEmbeddings: StoredEmbedding[] = this.vectorStore.entries.map(entry => ({
+				id: `${entry.document.metadata.source || 'unknown'}_${entry.document.metadata.chunk || 0}`,
+				content: entry.document.pageContent,
+				vector: entry.vector,
+				metadata: entry.document.metadata
+			}));
 
 			const embeddingData: EmbeddingData = {
 				embeddings: storedEmbeddings,
@@ -779,15 +792,14 @@ Answer:`
 			}
 
 			// Restore vector store
-			this.vectorStore = new MemoryVectorStore(this.embeddings);
-
-			const memoryVectors = data.embeddings.map(stored => ({
-				content: stored.content,
-				embedding: stored.vector,
-				metadata: stored.metadata
+			this.vectorStore = new InMemoryVectorStore(this.embeddings);
+			this.vectorStore.entries = data.embeddings.map(stored => ({
+				document: {
+					pageContent: stored.content,
+					metadata: stored.metadata
+				},
+				vector: stored.vector
 			}));
-
-			(this.vectorStore as any).memoryVectors = memoryVectors;
 
 			// Restore file index
 			this.fileIndex.clear();
@@ -891,7 +903,7 @@ Answer:`
 
 			this.fileIndex.clear();
 			this.cachedEmbeddings.clear();
-			this.vectorStore = new MemoryVectorStore(this.embeddings);
+			this.vectorStore.clear();
 
 			console.log('✅ Cleared all embeddings');
 		} catch (error) {

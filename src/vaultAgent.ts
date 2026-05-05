@@ -39,6 +39,7 @@ export type AgentAction =
 export interface PendingAction {
 	id: string;
 	action?: AgentAction;
+	origin: "chat" | "workflow";
 	title: string;
 	description: string;
 	preview: string;
@@ -232,9 +233,7 @@ export class VaultAgentService {
 		}
 
 		const rawActions = Array.isArray(envelope.actions) ? envelope.actions : [];
-		const pendingActions = await Promise.all(
-			rawActions.map((action, index) => this.validateAction(action, context, index))
-		);
+		const pendingActions = await this.prepareManualActions(rawActions, context, "chat");
 
 		return {
 			message: envelopeMessage || messageOutsideBlock || "I drafted a vault action for your review.",
@@ -245,23 +244,28 @@ export class VaultAgentService {
 		};
 	}
 
-	private async validateAction(rawAction: unknown, context: ChatEnvironmentContext, index: number): Promise<PendingAction> {
+	async prepareManualActions(rawActions: unknown[], context: ChatEnvironmentContext, origin: "chat" | "workflow"): Promise<PendingAction[]> {
+		return Promise.all(rawActions.map((action, index) => this.validateAction(action, context, index, origin)));
+	}
+
+	private async validateAction(rawAction: unknown, context: ChatEnvironmentContext, index: number, origin: "chat" | "workflow"): Promise<PendingAction> {
 		const parsedAction = this.parseAction(rawAction);
 		if (!parsedAction.action) {
-			return this.invalidAction(index, parsedAction.error, rawAction);
+			return this.invalidAction(index, parsedAction.error, rawAction, origin);
 		}
 
 		const action = parsedAction.action;
 		const basePending: PendingAction = {
 			id: `${Date.now()}-${index}`,
 			action,
+			origin,
 			title: this.getActionTitle(action),
 			description: this.getActionDescription(action),
 			preview: this.getActionPreview(action, context),
 			status: "pending",
 		};
 
-		if (!this.plugin.settings.enableVaultActions) {
+		if (origin === "chat" && !this.plugin.settings.enableVaultActions) {
 			return {
 				...basePending,
 				status: "invalid",
@@ -300,7 +304,7 @@ export class VaultAgentService {
 	}
 
 	async executeAction(pendingAction: PendingAction, context: ChatEnvironmentContext): Promise<AgentExecutionResult> {
-		if (!this.plugin.settings.enableVaultActions) {
+		if (pendingAction.origin === "chat" && !this.plugin.settings.enableVaultActions) {
 			return { success: false, message: "Vault Actions are disabled in settings." };
 		}
 		if (pendingAction.status === "invalid") {
@@ -569,9 +573,10 @@ export class VaultAgentService {
 		return { error: typeof type === "string" ? `Unsupported action type: ${type}` : "Action is missing a string type." };
 	}
 
-	private invalidAction(index: number, error: string, rawAction: unknown): PendingAction {
+	private invalidAction(index: number, error: string, rawAction: unknown, origin: "chat" | "workflow"): PendingAction {
 		return {
 			id: `${Date.now()}-${index}`,
+			origin,
 			title: "Invalid action",
 			description: "Ignored",
 			preview: this.safePreview(rawAction),

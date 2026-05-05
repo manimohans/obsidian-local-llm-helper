@@ -47,6 +47,11 @@ All commands available via Command Palette (prefix: `Text:`) or ribbon menu.
 - Clickable source references
 - Example queries to get started
 
+**Workflow Automation** - Run review workflows against your notes
+- Built-in recipes for weekly reviews, meeting notes to tasks, and project status summaries
+- Reuses note, folder, and tag scopes from RAG chat
+- Every note write stays behind explicit approval cards
+
 <img src="assets/rag-chat.png" width="500" alt="RAG Chat">
 
 ### 📚 Notes RAG (Retrieval-Augmented Generation)
@@ -124,6 +129,7 @@ All commands use clear prefixes for easy discovery:
 - `Text:` - Text transformation commands
 - `Prompt:` - Your saved custom prompts (hotkey-assignable)
 - `Chat:` - Open chat interfaces
+- `Workflow:` - Run review workflows
 - `Web:` - Web and news search
 - `Notes:` - RAG indexing and management
 - `Settings:` - Plugin configuration
@@ -176,9 +182,21 @@ Go to Settings → Local LLM Helper and choose your provider:
 3. Command Palette → "Chat: RAG Chat" to chat with your notes
 4. Command Palette → "Notes: Open related notes" to keep nearby notes visible while writing
 
+### 4. Run a Workflow
+
+1. Command Palette → "Workflow: Run workflow..."
+2. Choose a built-in recipe
+3. Confirm the note scope and output target
+4. Review the generated approval card before writing anything to your vault
+
 ## Changelog
 
 ### Unreleased
+
+**Workflow Automation**
+- Added a manual workflow runner for weekly review, meeting notes to tasks, and project status summary recipes
+- Reused note, folder, and tag scopes across RAG chat and workflow runs
+- Kept all workflow note writes behind explicit approval cards
 
 **Related Notes Sidebar**
 - Added a persistent "Related Notes" workspace view

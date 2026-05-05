@@ -526,6 +526,46 @@
     color: var(--text-muted);
 }
 
+.workflow-runner-bar,
+.workflow-runner-fields,
+.workflow-runner-field-row {
+    display: flex;
+    gap: 10px;
+}
+
+.workflow-runner-bar {
+    align-items: center;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    flex-wrap: wrap;
+}
+
+.workflow-runner-fields {
+    flex-direction: column;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-secondary);
+}
+
+.workflow-runner-field-row {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.workflow-runner-field-row .rag-chat-scope-label {
+    min-width: 110px;
+}
+
+.workflow-runner-field-row .rag-chat-scope-input {
+    flex: 1;
+    min-width: 220px;
+}
+
+.workflow-runner-helper {
+    margin-bottom: 4px;
+}
+
 /* Chat container */
 .rag-chat-container {
     flex: 1;

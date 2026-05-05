@@ -28,6 +28,9 @@ import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customP
 import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
 import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
 import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext, getCurrentOrFallbackChatContext } from './src/vaultAgent';
+import { WorkflowModal } from './src/workflowModal';
+import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
+import type { WorkflowDefaults } from './src/workflowTypes';
 
 // Remember to rename these classes and interfaces!
 
@@ -60,6 +63,7 @@ export interface OLocalLLMSettings {
 	autoNotice: boolean;
 	enableVaultActions: boolean;
 	showAgentDebug: boolean;
+	workflowDefaults: WorkflowDefaults;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
@@ -91,6 +95,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	autoNotice: false,
 	enableVaultActions: false,
 	showAgentDebug: false,
+	workflowDefaults: createDefaultWorkflowDefaults(),
 };
 
 function normalizeServerAddress(address: string): string {
@@ -112,6 +117,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	isIndexing: boolean = false;
 	public ragManager: RAGManager;
 	public vaultAgent: VaultAgentService;
+	public workflowRunner: WorkflowRunnerService;
 	private backlinkGenerator: BacklinkGenerator;
 	public personasDict: PersonasDict = {};
 	private registeredPromptCommands: Set<string> = new Set();
@@ -149,6 +155,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		// Initialize RAGManager
 		this.ragManager = new RAGManager(this.app.vault, this.settings, this);
 		this.vaultAgent = new VaultAgentService(this.app, this);
+		this.workflowRunner = new WorkflowRunnerService(this.app, this);
 		
 		// Initialize RAGManager and show user notification about loaded data
 		await this.ragManager.initialize();
@@ -230,6 +237,14 @@ export default class OLocalLLMPlugin extends Plugin {
 					folder: this.getFolderPath(file),
 					label: this.getFolderPath(file) || 'Vault root'
 				});
+			},
+		});
+
+		this.addCommand({
+			id: 'run-workflow',
+			name: 'Workflow: Run workflow...',
+			callback: () => {
+				new WorkflowModal(this.app, this).open();
 			},
 		});
 
@@ -894,6 +909,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			savedData
 		);
+		this.settings.workflowDefaults = mergeWorkflowDefaults(savedData?.workflowDefaults);
 
 		this.settings.serverAddress = normalizeServerAddress(this.settings.serverAddress);
 		this.rebuildPersonas();
@@ -1461,6 +1477,17 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
+		containerEl.createEl("h3", { text: "Workflow Automation" });
+
+		containerEl.createEl("p", {
+			text: "Manual workflow recipes draft note changes from RAG context and still require approval before writing.",
+			cls: "setting-item-description",
+		});
+
+		this.renderWorkflowDefaultsSetting(containerEl, "weekly-review", "Weekly review");
+		this.renderWorkflowDefaultsSetting(containerEl, "meeting-notes-to-tasks", "Meeting notes to tasks");
+		this.renderWorkflowDefaultsSetting(containerEl, "project-status-summary", "Project status summary");
+
 		// ═══════════════════════════════════════════════════════════
 		// OUTPUT
 		// ═══════════════════════════════════════════════════════════
@@ -1848,6 +1875,82 @@ class OLLMSettingTab extends PluginSettingTab {
 				.onClick(() => {
 					new UpdateNoticeModal(this.app, this.plugin.manifest.version).open();
 				}));
+	}
+
+	private renderWorkflowDefaultsSetting(containerEl: HTMLElement, recipeId: keyof WorkflowDefaults["recipes"], label: string) {
+		const defaults = this.plugin.settings.workflowDefaults.recipes[recipeId];
+		containerEl.createEl("h4", { text: label });
+
+		new Setting(containerEl)
+			.setName("Default source scope")
+			.setDesc(`Saved default scope for ${label.toLowerCase()}`)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption("vault", "Entire vault")
+					.addOption("current-note", "Current note")
+					.addOption("current-folder", "Current folder")
+					.addOption("tag", "Tag")
+					.setValue(defaults.scopeOption)
+					.onChange(async (value) => {
+						defaults.scopeOption = value as typeof defaults.scopeOption;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Default tags")
+			.setDesc("Only used when the default source scope is Tag")
+			.addText((text) =>
+				text
+					.setPlaceholder("#project")
+					.setValue(defaults.tagValue)
+					.onChange((value) => {
+						defaults.tagValue = value;
+						this.debouncedSave();
+					})
+			);
+
+		if (recipeId === "weekly-review") {
+			new Setting(containerEl)
+				.setName("Output folder")
+				.setDesc("Folder used for the new weekly review note")
+				.addText((text) =>
+					text
+						.setPlaceholder("Reviews")
+						.setValue(defaults.outputFolder)
+						.onChange((value) => {
+							defaults.outputFolder = value;
+							this.debouncedSave();
+						})
+				);
+
+			new Setting(containerEl)
+				.setName("Title template")
+				.setDesc("Use YYYY-MM-DD for the local date")
+				.addText((text) =>
+					text
+						.setPlaceholder("Weekly Review - YYYY-MM-DD")
+						.setValue(defaults.titleTemplate)
+						.onChange((value) => {
+							defaults.titleTemplate = value || "Weekly Review - YYYY-MM-DD";
+							this.debouncedSave();
+						})
+				);
+			return;
+		}
+
+		new Setting(containerEl)
+			.setName("Target note")
+			.setDesc("Default note to append workflow output into")
+			.addText((text) =>
+				text
+					.setPlaceholder("Projects/Current Project.md")
+					.setValue(defaults.targetNote)
+					.onChange((value) => {
+						defaults.targetNote = value;
+						this.debouncedSave();
+					})
+			);
 	}
 
 	updateIndexedFilesCount() {

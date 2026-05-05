@@ -3,8 +3,7 @@ import type OLocalLLMPlugin from "../main";
 import type { OLocalLLMSettings } from "../main";
 import { RAGManager, RAGQueryScope } from "./rag";
 import { type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext, getCurrentOrFallbackChatContext } from "./vaultAgent";
-
-type ScopeOption = "vault" | "current-note" | "current-folder" | "tag";
+import { RAGScopeSelector, describeRAGScope } from "./ragScope";
 
 interface ParsedScopeOverride {
 	scope?: RAGQueryScope;
@@ -22,11 +21,7 @@ export class RAGChatModal extends Modal {
 	private textInput: TextComponent;
 	private conversationHistory: ConversationEntry[] = [];
 	private initialChatContext: ChatEnvironmentContext;
-	private scopeSelect: DropdownComponent;
-	private scopeValueInput: TextComponent | null = null;
-	private scopeMetaEl: HTMLElement | null = null;
-	private scopeOption: ScopeOption;
-	private scopeDraftValue: string = "";
+	private scopeSelector: RAGScopeSelector;
 	private initialScope?: RAGQueryScope;
 
 	constructor(app: App, settings: OLocalLLMSettings, ragManager: RAGManager, plugin: OLocalLLMPlugin, initialScope?: RAGQueryScope) {
@@ -36,10 +31,6 @@ export class RAGChatModal extends Modal {
 		this.plugin = plugin;
 		this.initialScope = initialScope;
 		this.initialChatContext = getActiveChatContext(app);
-		this.scopeOption = this.getOptionFromScope(initialScope);
-		if (initialScope?.mode === "tags" && initialScope.tags?.length) {
-			this.scopeDraftValue = initialScope.tags.map(tag => `#${tag.replace(/^#/, "")}`).join(", ");
-		}
 	}
 
 	onOpen() {
@@ -58,25 +49,9 @@ export class RAGChatModal extends Modal {
 		headerText.createEl("span", { text: subtitle, cls: "rag-chat-subtitle" });
 
 		const scopeBar = contentEl.createDiv({ cls: "rag-chat-scope-bar" });
-		const scopeLabel = scopeBar.createSpan({ text: "Scope", cls: "rag-chat-scope-label" });
-		this.scopeSelect = new DropdownComponent(scopeBar);
-		this.scopeSelect.selectEl.addClass("rag-chat-scope-select");
-		this.scopeSelect
-			.addOption("vault", "Entire vault")
-			.addOption("current-note", "Current note")
-			.addOption("current-folder", "Current folder")
-			.addOption("tag", "Tag")
-			.setValue(this.scopeOption)
-			.onChange((value: ScopeOption) => {
-				this.scopeOption = value;
-				this.renderScopeValueInput();
-				this.updateScopeMeta();
-			});
-		scopeLabel.setAttribute("for", this.scopeSelect.selectEl.id);
-
-		this.scopeMetaEl = scopeBar.createDiv({ cls: "rag-chat-scope-meta" });
-		this.renderScopeValueInput();
-		this.updateScopeMeta();
+		this.scopeSelector = new RAGScopeSelector(this.app, scopeBar, {
+			initialScope: this.initialScope,
+		});
 
 		const chatContainer = contentEl.createDiv({ cls: "rag-chat-container" });
 		this.chatHistoryEl = chatContainer.createDiv({ cls: "rag-chat-history" });
@@ -114,62 +89,6 @@ export class RAGChatModal extends Modal {
 
 		this.updateSubmitButtonState();
 		this.textInput.inputEl.focus();
-	}
-
-	private getOptionFromScope(scope?: RAGQueryScope): ScopeOption {
-		switch (scope?.mode) {
-			case "paths":
-				return "current-note";
-			case "folder":
-				return "current-folder";
-			case "tags":
-				return "tag";
-			default:
-				return "vault";
-		}
-	}
-
-	private renderScopeValueInput() {
-		if (!this.scopeMetaEl) {
-			return;
-		}
-
-		this.scopeMetaEl.empty();
-		this.scopeValueInput = null;
-
-		if (this.scopeOption !== "tag") {
-			return;
-		}
-
-		const tagInputWrap = this.scopeMetaEl.createDiv({ cls: "rag-chat-scope-input-wrap" });
-		this.scopeValueInput = new TextComponent(tagInputWrap)
-			.setPlaceholder("#project, #meeting-notes")
-			.setValue(this.scopeDraftValue)
-			.onChange((value) => {
-				this.scopeDraftValue = value;
-				this.updateScopeMeta();
-			});
-		this.scopeValueInput.inputEl.addClass("rag-chat-scope-input");
-	}
-
-	private updateScopeMeta() {
-		if (!this.scopeMetaEl) {
-			return;
-		}
-
-		this.scopeMetaEl.querySelectorAll(".rag-chat-scope-hint").forEach(el => el.remove());
-
-		if (this.scopeOption === "tag") {
-			const hint = this.scopeMetaEl.createDiv({ cls: "rag-chat-scope-hint" });
-			const tags = this.parseTags(this.scopeDraftValue);
-			hint.setText(tags.length > 0
-				? `Filtering indexed notes with ${tags.map(tag => `#${tag}`).join(", ")}`
-				: "Type one or more tags separated by commas");
-			return;
-		}
-
-		const hint = this.scopeMetaEl.createDiv({ cls: "rag-chat-scope-hint" });
-		hint.setText(this.describeResolvedScope(this.resolveScopeFromSelection()));
 	}
 
 	private showWelcomeMessage() {
@@ -216,7 +135,7 @@ export class RAGChatModal extends Modal {
 		this.hideWelcomeMessage();
 
 		const parsedOverride = this.parseScopeOverride(this.result);
-		const selectionScope = this.resolveScopeFromSelection();
+		const selectionScope = this.scopeSelector.getScope();
 		const scope = parsedOverride.scope || selectionScope;
 		const query = parsedOverride.cleanQuery;
 
@@ -228,7 +147,7 @@ export class RAGChatModal extends Modal {
 		this.updateSubmitButtonState();
 
 		const thinkingEl = this.chatHistoryEl.createDiv({ cls: "rag-chat-thinking" });
-		thinkingEl.innerHTML = `Searching ${this.escapeHtml(this.describeResolvedScope(scope))}<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>`;
+		thinkingEl.innerHTML = `Searching ${this.escapeHtml(describeRAGScope(scope))}<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>`;
 		this.scrollToBottom();
 
 		try {
@@ -252,7 +171,7 @@ export class RAGChatModal extends Modal {
 					messageClassName: "rag-chat-message rag-chat-message-ai",
 					responseTextClassName: "rag-chat-response-text",
 					copyButtonClassName: "rag-chat-copy-btn",
-					badgeText: this.describeResolvedScope(scope),
+					badgeText: describeRAGScope(scope),
 					scrollToBottom: () => this.scrollToBottom(),
 				},
 			);
@@ -347,53 +266,6 @@ export class RAGChatModal extends Modal {
 		return { cleanQuery: finalQuery };
 	}
 
-	private resolveScopeFromSelection(): RAGQueryScope {
-		switch (this.scopeOption) {
-			case "current-note": {
-				const file = this.getActiveMarkdownFile();
-				return file
-					? { mode: "paths", paths: [file.path], label: file.basename }
-					: { mode: "vault", label: "Entire vault" };
-			}
-			case "current-folder": {
-				const file = this.getActiveMarkdownFile();
-				if (!file) {
-					return { mode: "vault", label: "Entire vault" };
-				}
-				const folder = this.getFolderPath(file);
-				return {
-					mode: "folder",
-					folder,
-					label: folder || "Vault root"
-				};
-			}
-			case "tag": {
-				const tags = this.parseTags(this.scopeDraftValue);
-				return tags.length > 0
-					? { mode: "tags", tags, label: tags.map(tag => `#${tag}`).join(", ") }
-					: { mode: "vault", label: "Entire vault" };
-			}
-			default:
-				return this.initialScope || { mode: "vault", label: "Entire vault" };
-		}
-	}
-
-	private describeResolvedScope(scope: RAGQueryScope): string {
-		switch (scope.mode) {
-			case "paths":
-				if ((scope.paths || []).length === 1) {
-					return `current note: ${scope.label || scope.paths?.[0]}`;
-				}
-				return scope.label || `${scope.paths?.length || 0} notes`;
-			case "folder":
-				return `folder: ${scope.label || scope.folder || "Vault root"}`;
-			case "tags":
-				return `tags: ${(scope.tags || []).map(tag => `#${tag.replace(/^#/, "")}`).join(", ")}`;
-			default:
-				return "entire vault";
-		}
-	}
-
 	private resolveNoteReference(reference: string): TFile | null {
 		const exact = this.app.metadataCache.getFirstLinkpathDest(reference, "");
 		if (exact) {
@@ -406,23 +278,6 @@ export class RAGChatModal extends Modal {
 			file.path.toLowerCase() === `${normalizedReference}.md` ||
 			file.basename.toLowerCase() === normalizedReference
 		) || null;
-	}
-
-	private parseTags(rawValue: string): string[] {
-		return rawValue
-			.split(",")
-			.map(part => part.trim())
-			.filter(Boolean)
-			.map(tag => tag.replace(/^#/, "").toLowerCase());
-	}
-
-	private getActiveMarkdownFile(): TFile | null {
-		return this.app.workspace.getActiveFile();
-	}
-
-	private getFolderPath(file: TFile): string {
-		const lastSlashIndex = file.path.lastIndexOf("/");
-		return lastSlashIndex === -1 ? "" : file.path.slice(0, lastSlashIndex);
 	}
 
 	private formatResponse(text: string): string {

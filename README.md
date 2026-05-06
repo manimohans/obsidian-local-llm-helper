@@ -51,6 +51,7 @@ All commands available via Command Palette (prefix: `Text:`) or ribbon menu.
 - Built-in recipes for weekly reviews, meeting notes to tasks, and project status summaries
 - Reuses note, folder, and tag scopes from RAG chat
 - Every note write stays behind explicit approval cards
+- Works from your indexed notes, so you keep local-first review workflows without automatic writes
 
 <img src="assets/rag-chat.png" width="500" alt="RAG Chat">
 
@@ -188,6 +189,11 @@ Go to Settings → Local LLM Helper and choose your provider:
 2. Choose a built-in recipe
 3. Confirm the note scope and output target
 4. Review the generated approval card before writing anything to your vault
+
+Notes:
+- Workflows use the same indexed-note context as RAG chat, so run `Notes: Index notes for RAG` first if your vault changed.
+- `Meeting notes to tasks` and `Project status summary` require a target note to append into.
+- Workflow approvals still work even if the chat-only `Vault Actions` toggle is off.
 
 ## Changelog
 

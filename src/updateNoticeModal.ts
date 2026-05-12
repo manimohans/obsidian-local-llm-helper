@@ -3,6 +3,16 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.2",
+		date: "2026-05",
+		changes: `
+**Plugin Review**
+- Removed release metadata that Obsidian's plugin review flagged as stale.
+- Reworked automatic indexing timers and clarified that auto-indexing uses the configured embedding server.
+- Added GitHub Actions build provenance attestations for release assets.
+`,
+	},
+	{
 		version: "2.4.1",
 		date: "2026-04",
 		changes: `

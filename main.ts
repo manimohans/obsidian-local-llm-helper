@@ -865,11 +865,13 @@ export default class OLocalLLMPlugin extends Plugin {
 		const minutes = this.settings.autoIndexIntervalMinutes;
 		if (minutes > 0) {
 			const scheduleNext = () => {
-				this.autoIndexTimer = window.setTimeout(async () => {
-					await this.runAutoIndex();
-					if (this.autoIndexTimer !== undefined) {
-						scheduleNext();
-					}
+				this.autoIndexTimer = window.setTimeout(() => {
+					const scheduleIfActive = () => {
+						if (this.autoIndexTimer !== undefined) {
+							scheduleNext();
+						}
+					};
+					void this.runAutoIndex().then(scheduleIfActive, scheduleIfActive);
 				}, minutes * 60 * 1000);
 			};
 			scheduleNext();
@@ -1726,8 +1728,8 @@ class OLLMSettingTab extends PluginSettingTab {
 		// Auto-index interval
 		new Setting(containerEl)
 			.setName("Auto-index interval (minutes)")
-			.setDesc("Automatically re-index notes every N minutes. Set to 0 to disable.")
-			.addText(text => text
+			.setDesc("Automatically re-index notes every N minutes using your configured embedding server. Set to 0 to disable.")
+			.addText((text) => text
 				.setPlaceholder("0")
 				.setValue(String(this.plugin.settings.autoIndexIntervalMinutes))
 				.onChange(async (value) => {

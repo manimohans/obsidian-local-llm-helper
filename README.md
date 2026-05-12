@@ -1,4 +1,8 @@
-# Local LLM Helper
+<p align="center">
+  <img src="assets/logo.png" width="128" alt="Local LLM Helper logo">
+</p>
+
+<h1 align="center">Local LLM Helper</h1>
 
 An Obsidian plugin that brings the power of local LLMs directly into your notes. Process text, chat with AI, search your vault semantically — all while keeping your data private and local.
 

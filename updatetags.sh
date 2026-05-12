@@ -2,5 +2,5 @@
 #STEP 2: update updateNoticeModal.ts with the new version update texts
 #
 #
-git tag -a 2.4.2 -m "2.4.2"
-git push origin 2.4.2
+git tag -a 2.4.3 -m "2.4.3"
+git push origin 2.4.3

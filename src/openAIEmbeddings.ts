@@ -202,8 +202,8 @@ export class OpenAIEmbeddings {
 		}
 	}
 
-	private createHelpfulError(error: any): Error {
-		const msg = error?.message || String(error);
+	private createHelpfulError(error: unknown): Error {
+		const msg = error instanceof Error ? error.message : String(error);
 
 		if (
 			msg.includes("ECONNREFUSED") ||

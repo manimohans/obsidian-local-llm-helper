@@ -141,7 +141,7 @@ export class UpdateNoticeModal extends Modal {
 		const currentChangelog = CHANGELOGS.find(c => c.version === this.version);
 		if (currentChangelog) {
 			const currentSection = contentEl.createDiv({ cls: "llm-changelog-current" });
-			MarkdownRenderer.render(
+			void MarkdownRenderer.render(
 				this.app,
 				currentChangelog.changes,
 				currentSection,
@@ -159,7 +159,7 @@ export class UpdateNoticeModal extends Modal {
 			for (const changelog of previousVersions) {
 				const versionSection = detailsEl.createDiv({ cls: "llm-changelog-version" });
 				versionSection.createEl("h4", { text: `v${changelog.version}` });
-				MarkdownRenderer.render(
+				void MarkdownRenderer.render(
 					this.app,
 					changelog.changes,
 					versionSection,

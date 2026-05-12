@@ -4,7 +4,6 @@
   "description": "Local LLM helper plugin for Obsidian",
   "main": "main.js",
   "dependencies": {
-    "axios": "^1.7.4",
     "obsidian": "^1.5.7-1",
     "tslib": "^2.4.0"
   },
@@ -17,7 +16,6 @@
   "license": "ISC",
   "devDependencies": {
     "@types/fs-extra": "^11.0.4",
-    "builtin-modules": "^5.0.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.9.3"
   }

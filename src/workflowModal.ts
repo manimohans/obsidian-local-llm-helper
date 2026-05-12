@@ -224,7 +224,8 @@ export class WorkflowModal extends Modal {
 		userMsg.createSpan({ text: `${recipe.title} on ${scopeLabel}` });
 
 		const thinkingEl = this.chatHistoryEl.createDiv({ cls: "rag-chat-thinking" });
-		thinkingEl.innerHTML = `Drafting ${recipe.title.toLowerCase()} from ${this.escapeHtml(scopeLabel)}<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>`;
+		thinkingEl.createSpan({ text: `Drafting ${recipe.title.toLowerCase()} from ${scopeLabel}` });
+		this.appendThinkingDots(thinkingEl);
 		this.scrollToBottom();
 
 		try {
@@ -291,11 +292,11 @@ export class WorkflowModal extends Modal {
 		this.chatHistoryEl.scrollTop = this.chatHistoryEl.scrollHeight;
 	}
 
-	private escapeHtml(text: string): string {
-		return text
-			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;");
+	private appendThinkingDots(containerEl: HTMLElement) {
+		const dots = containerEl.createSpan({ cls: "dots" });
+		dots.createSpan({ cls: "dot" });
+		dots.createSpan({ cls: "dot" });
+		dots.createSpan({ cls: "dot" });
 	}
 
 	onClose() {

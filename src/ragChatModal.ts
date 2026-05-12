@@ -77,14 +77,14 @@ export class RAGChatModal extends Modal {
 		this.textInput.inputEl.addEventListener("keypress", (event) => {
 			if (event.key === "Enter" && this.result.trim() !== "") {
 				event.preventDefault();
-				this.handleSubmit();
+				void this.handleSubmit();
 			}
 		});
 
 		this.submitButton = new ButtonComponent(inputRow)
 			.setButtonText("Send")
 			.setCta()
-			.onClick(() => this.handleSubmit());
+			.onClick(() => void this.handleSubmit());
 		this.submitButton.buttonEl.addClass("rag-chat-submit-btn");
 
 		this.updateSubmitButtonState();
@@ -147,7 +147,8 @@ export class RAGChatModal extends Modal {
 		this.updateSubmitButtonState();
 
 		const thinkingEl = this.chatHistoryEl.createDiv({ cls: "rag-chat-thinking" });
-		thinkingEl.innerHTML = `Searching ${this.escapeHtml(describeRAGScope(scope))}<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>`;
+		thinkingEl.createSpan({ text: `Searching ${describeRAGScope(scope)}` });
+		this.appendThinkingDots(thinkingEl);
 		this.scrollToBottom();
 
 		try {
@@ -280,19 +281,11 @@ export class RAGChatModal extends Modal {
 		) || null;
 	}
 
-	private formatResponse(text: string): string {
-		return text
-			.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-			.replace(/\*(.*?)\*/g, "<em>$1</em>")
-			.replace(/\n\n/g, "</p><p>")
-			.replace(/\n/g, "<br>");
-	}
-
-	private escapeHtml(text: string): string {
-		return text
-			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;");
+	private appendThinkingDots(containerEl: HTMLElement) {
+		const dots = containerEl.createSpan({ cls: "dots" });
+		dots.createSpan({ cls: "dot" });
+		dots.createSpan({ cls: "dot" });
+		dots.createSpan({ cls: "dot" });
 	}
 
 	private clearConversation() {

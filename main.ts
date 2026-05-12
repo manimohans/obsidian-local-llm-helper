@@ -10,7 +10,6 @@ import {
 	Setting,
 	SuggestModal,
 	TFile,
-	View,
 	requestUrl,
 	setIcon,
 	TextComponent,
@@ -110,7 +109,6 @@ function normalizeServerAddress(address: string): string {
 
 export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
-	modal: any;
 	conversationHistory: ConversationEntry[] = [];
 	isKillSwitchActive: boolean = false;
 	autoIndexTimer: number | undefined;
@@ -138,20 +136,12 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	async onload() {
-		console.log('🔌 LLM Helper: Plugin loading...');
 		await this.loadSettings();
 		this.registerCustomPromptCommands();
-		console.log('⚙️ LLM Helper: Settings loaded:', {
-			provider: this.settings.providerType,
-			server: this.settings.serverAddress,
-			embeddingModel: this.settings.embeddingModelName,
-			llmModel: this.settings.llmModel
-		});
-		this.checkForUpdates();
+		void this.checkForUpdates();
 		// Validate server configuration
 		this.validateServerConfiguration();
 
-		console.log('🧠 LLM Helper: Initializing RAGManager...');
 		// Initialize RAGManager
 		this.ragManager = new RAGManager(this.app.vault, this.settings, this);
 		this.vaultAgent = new VaultAgentService(this.app, this);
@@ -163,8 +153,8 @@ export default class OLocalLLMPlugin extends Plugin {
 		
 		// Show user-friendly notification about loaded embeddings after a short delay
 		// This ensures all UI elements are ready
-		setTimeout(() => {
-			this.showStorageNotification();
+		activeWindow.setTimeout(() => {
+			void this.showStorageNotification();
 		}, 500);
 
 		// Initialize BacklinkGenerator
@@ -273,7 +263,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processText(
+					void processText(
 						selectedText,
 						"Summarize the following text concisely. Preserve markdown formatting:",
 						this
@@ -289,7 +279,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processText(
+					void processText(
 						selectedText,
 						"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
 						this
@@ -305,7 +295,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processText(
+					void processText(
 						selectedText,
 						"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
 						this
@@ -322,7 +312,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				new Notice("Custom prompt: " + this.settings.customPrompt);
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processText(
+					void processText(
 						selectedText,
 						this.settings.customPrompt,
 						this
@@ -338,7 +328,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				this.isKillSwitchActive = false; // Reset kill switch state
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processText(
+					void processText(
 						selectedText,
 						"Respond to the following prompt:",
 						this
@@ -358,7 +348,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				}
 				new PromptPickerModal(this.app, (prompt: string) => {
 					this.isKillSwitchActive = false;
-					processText(selectedText, prompt, this);
+					void processText(selectedText, prompt, this);
 				}).open();
 			},
 		});
@@ -380,7 +370,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				new SelectPromptModal(this.app, prompts, (chosen) => {
 					this.isKillSwitchActive = false;
 					new Notice("Running: " + chosen.title);
-					processText(selectedText, chosen.prompt, this);
+					void processText(selectedText, chosen.prompt, this);
 				}).open();
 			},
 		});
@@ -398,7 +388,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "llm-hashtag",
 			name: "Text: Generate tags",
 			callback: () => {
-				generateAndAppendTags(this.app, this.settings);
+				void generateAndAppendTags(this.app, this.settings);
 			},
 		});
 
@@ -409,7 +399,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				this.isKillSwitchActive = false;
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processWebSearch(selectedText, this);
+					void processWebSearch(selectedText, this);
 				}
 			},
 		});
@@ -420,7 +410,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
-					processNewsSearch(selectedText, this);
+					void processNewsSearch(selectedText, this);
 				}
 			},
 		});
@@ -498,7 +488,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						}
 						new PromptPickerModal(this.app, (prompt: string) => {
 							this.isKillSwitchActive = false;
-							processText(selectedText, prompt, this);
+							void processText(selectedText, prompt, this);
 						}).open();
 					})
 			);
@@ -511,7 +501,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.isKillSwitchActive = false;
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
-							processText(
+							void processText(
 								selectedText,
 								"Summarize the following text concisely. Preserve markdown formatting:",
 								this
@@ -528,7 +518,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.isKillSwitchActive = false;
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
-							processText(
+							void processText(
 								selectedText,
 								"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
 								this
@@ -545,7 +535,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.isKillSwitchActive = false;
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
-							processText(
+							void processText(
 								selectedText,
 								"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
 								this
@@ -562,7 +552,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							new Notice("Generating tags...");
-							generateAndAppendTags(this.app, this.settings);
+							void generateAndAppendTags(this.app, this.settings);
 						}
 					})
 			);
@@ -575,7 +565,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.isKillSwitchActive = false;
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
-							processText(
+							void processText(
 								selectedText,
 								"Respond to the following prompt:",
 								this
@@ -593,7 +583,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							new Notice("Running: " + this.settings.customPrompt);
-							processText(
+							void processText(
 								selectedText,
 								this.settings.customPrompt,
 								this
@@ -620,7 +610,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						new SelectPromptModal(this.app, prompts, (chosen) => {
 							this.isKillSwitchActive = false;
 							new Notice("Running: " + chosen.title);
-							processText(selectedText, chosen.prompt, this);
+							void processText(selectedText, chosen.prompt, this);
 						}).open();
 					})
 			);
@@ -635,7 +625,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					.onClick(async () => {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
-							processWebSearch(selectedText, this);
+							void processWebSearch(selectedText, this);
 						}
 					})
 			);
@@ -647,7 +637,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					.onClick(async () => {
 						let selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
-							processNewsSearch(selectedText, this);
+							void processNewsSearch(selectedText, this);
 						}
 					})
 			);
@@ -784,8 +774,12 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	onunload() {
 		if (this.relatedNotesRefreshTimer !== null) {
-			window.clearTimeout(this.relatedNotesRefreshTimer);
+			activeWindow.clearTimeout(this.relatedNotesRefreshTimer);
 			this.relatedNotesRefreshTimer = null;
+		}
+		if (this.autoIndexTimer !== undefined) {
+			activeWindow.clearTimeout(this.autoIndexTimer);
+			this.autoIndexTimer = undefined;
 		}
 
 		this.app.workspace.detachLeavesOfType(RELATED_NOTES_VIEW_TYPE);
@@ -802,10 +796,10 @@ export default class OLocalLLMPlugin extends Plugin {
 		}
 
 		if (this.relatedNotesRefreshTimer !== null) {
-			window.clearTimeout(this.relatedNotesRefreshTimer);
+			activeWindow.clearTimeout(this.relatedNotesRefreshTimer);
 		}
 
-		this.relatedNotesRefreshTimer = window.setTimeout(() => {
+		this.relatedNotesRefreshTimer = activeWindow.setTimeout(() => {
 			this.relatedNotesRefreshTimer = null;
 			void this.refreshRelatedNotesView();
 		}, delayMs);
@@ -867,35 +861,40 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	startAutoIndexTimer() {
 		if (this.autoIndexTimer) {
-			clearInterval(this.autoIndexTimer);
+			activeWindow.clearTimeout(this.autoIndexTimer);
 			this.autoIndexTimer = undefined;
 		}
 		const minutes = this.settings.autoIndexIntervalMinutes;
 		if (minutes > 0) {
-			this.autoIndexTimer = this.registerInterval(
-				window.setInterval(async () => {
-					if (this.isIndexing) {
-						console.log("LLM Helper: Skipping auto-index, indexing already in progress.");
-						return;
+			const scheduleNext = () => {
+				this.autoIndexTimer = activeWindow.setTimeout(async () => {
+					await this.runAutoIndex();
+					if (this.autoIndexTimer !== undefined) {
+						scheduleNext();
 					}
-					console.log("LLM Helper: Auto-indexing notes...");
-					if(this.settings.autoNotice) {
-						new Notice("LLM Helper: Auto-indexing notes...");
-					}
-					this.isIndexing = true;
-					try {
-						await this.ragManager.indexNotes(() => {});
-						if(this.settings.autoNotice) {
-							new Notice("LLM Helper: Auto-index complete.");
-						}
-						console.log("LLM Helper: Auto-index complete.");
-					} catch (error) {
-						console.log("LLM Helper: Auto-index error:", error);
-					} finally {
-						this.isIndexing = false;
-					}
-				}, minutes * 60 * 1000)
-			);
+				}, minutes * 60 * 1000);
+			};
+			scheduleNext();
+		}
+	}
+
+	private async runAutoIndex(): Promise<void> {
+		if (this.isIndexing) {
+			return;
+		}
+		if (this.settings.autoNotice) {
+			new Notice("LLM Helper: Auto-indexing notes...");
+		}
+		this.isIndexing = true;
+		try {
+			await this.ragManager.indexNotes(() => {});
+			if (this.settings.autoNotice) {
+				new Notice("LLM Helper: Auto-index complete.");
+			}
+		} catch (error) {
+			console.error("LLM Helper: Auto-index error:", error);
+		} finally {
+			this.isIndexing = false;
 		}
 	}
 
@@ -956,7 +955,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				const selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					new Notice("Running: " + customPrompt.title);
-					processText(selectedText, customPrompt.prompt, this);
+					void processText(selectedText, customPrompt.prompt, this);
 				}
 			},
 		});
@@ -965,14 +964,14 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	unregisterPromptCommand(id: string) {
 		const commandId = `ollm-helper:${id}`;
-		(this.app as any).commands.removeCommand(commandId);
+		(this.app as ObsidianCommandApp).commands.removeCommand(commandId);
 		this.registeredPromptCommands.delete(commandId);
 	}
 
 	refreshCustomPromptCommands() {
 		// Unregister all existing custom prompt commands
 		for (const commandId of this.registeredPromptCommands) {
-			(this.app as any).commands.removeCommand(commandId);
+			(this.app as ObsidianCommandApp).commands.removeCommand(commandId);
 		}
 		this.registeredPromptCommands.clear();
 
@@ -1097,12 +1096,15 @@ async function fetchAvailableModels(settings: OLocalLLMSettings): Promise<string
 		throw new Error(`Server returned ${response.status}`);
 	}
 
-	const data = response.json;
+	const data = response.json as ModelListResponse;
 	if (!data?.data || !Array.isArray(data.data)) {
 		throw new Error("Unexpected response format");
 	}
 
-	return data.data.map((m: any) => m.id).filter(Boolean).sort();
+	return data.data
+		.map((model) => model.id)
+		.filter((id): id is string => Boolean(id))
+		.sort();
 }
 
 class ModelPickerModal extends SuggestModal<string> {
@@ -1134,7 +1136,7 @@ class OLLMSettingTab extends PluginSettingTab {
 	plugin: OLocalLLMPlugin;
 	private indexingProgressBar: HTMLProgressElement | null = null;
 	private indexedFilesCountSetting: Setting | null = null;
-	private saveTimeout: NodeJS.Timeout | null = null;
+	private saveTimeout: number | null = null;
 
 	constructor(app: App, plugin: OLocalLLMPlugin) {
 		super(app, plugin);
@@ -1144,19 +1146,19 @@ class OLLMSettingTab extends PluginSettingTab {
 	// Debounced save to prevent lag when typing
 	private debouncedSave() {
 		if (this.saveTimeout) {
-			clearTimeout(this.saveTimeout);
+			activeWindow.clearTimeout(this.saveTimeout);
 		}
-		this.saveTimeout = setTimeout(() => {
-			this.plugin.saveSettings();
+		this.saveTimeout = activeWindow.setTimeout(() => {
+			void this.plugin.saveSettings();
 		}, 500);
 	}
 
 	// Flush any pending debounced save when settings tab is closed
 	hide() {
 		if (this.saveTimeout) {
-			clearTimeout(this.saveTimeout);
+			activeWindow.clearTimeout(this.saveTimeout);
 			this.saveTimeout = null;
-			this.plugin.saveSettings();
+			void this.plugin.saveSettings();
 		}
 	}
 
@@ -1250,7 +1252,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						new ModelPickerModal(this.app, models, (model) => {
 							this.plugin.settings.llmModel = model;
 							chatModelText.setValue(model);
-							this.plugin.saveSettings();
+							void this.plugin.saveSettings();
 						}).open();
 					} catch (e) {
 						console.error("Failed to fetch models:", e);
@@ -1289,7 +1291,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						new ModelPickerModal(this.app, models, (model) => {
 							this.plugin.settings.embeddingModelName = model;
 							embeddingModelText.setValue(model);
-							this.plugin.saveSettings();
+							void this.plugin.saveSettings();
 						}).open();
 					} catch (e) {
 						console.error("Failed to fetch models:", e);
@@ -1495,7 +1497,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Streaming")
-			.setDesc("Show response word by word as it generates. Your server must have CORS enabled for streaming to work.")
+			.setDesc("Request streamed responses from the server. Obsidian buffers the final result before inserting it.")
 			.addToggle((toggle) =>
 				toggle
 					.setValue(this.plugin.settings.stream)
@@ -1968,12 +1970,108 @@ class OLLMSettingTab extends PluginSettingTab {
 				console.log('📊 Settings: Updated indexed files count to', this.plugin.ragManager.getIndexedFilesCount());
 			} else {
 				// Check again in 100ms
-				setTimeout(checkAndUpdate, 100);
+				activeWindow.setTimeout(checkAndUpdate, 100);
 			}
 		};
 		
 		// Start checking after a short delay
-		setTimeout(checkAndUpdate, 50);
+		activeWindow.setTimeout(checkAndUpdate, 50);
+	}
+}
+
+interface ChatCompletionResponse {
+	choices: Array<{
+		message: {
+			content: string;
+			reasoning?: string;
+		};
+	}>;
+}
+
+interface StreamedChatCompletionChunk {
+	choices?: Array<{
+		delta?: {
+			content?: string;
+		};
+		message?: {
+			content?: string;
+		};
+	}>;
+}
+
+interface ModelListResponse {
+	data: Array<{ id?: string }>;
+}
+
+interface TavilySearchResult {
+	title: string;
+	content: string;
+	url: string;
+}
+
+interface TavilySearchResponse {
+	results: TavilySearchResult[];
+}
+
+interface BraveWebResult {
+	title: string;
+	description: string;
+	url: string;
+	extra_snippets?: string[];
+}
+
+interface BraveNewsResult {
+	title: string;
+	description: string;
+	url: string;
+	published_time?: string;
+}
+
+interface ObsidianCommandApp extends App {
+	commands: {
+		removeCommand(id: string): void;
+	};
+}
+
+function buildChatHeaders(plugin: OLocalLLMPlugin): Record<string, string> {
+	const headers: Record<string, string> = { "Content-Type": "application/json" };
+	if (plugin.settings.openAIApiKey && plugin.settings.openAIApiKey !== "not-needed") {
+		headers["Authorization"] = `Bearer ${plugin.settings.openAIApiKey}`;
+	}
+	return headers;
+}
+
+function parseStreamedChatCompletion(responseText: string): string {
+	const chunks: string[] = [];
+	for (const line of responseText.split("\n")) {
+		const trimmedLine = line.trim();
+		if (!trimmedLine || !trimmedLine.startsWith("data:")) {
+			continue;
+		}
+		const payload = trimmedLine.replace(/^data:\s*/, "");
+		if (payload === "[DONE]") {
+			continue;
+		}
+		try {
+			const data = JSON.parse(payload) as StreamedChatCompletionChunk;
+			const content = data.choices?.[0]?.delta?.content;
+			if (content) {
+				chunks.push(content);
+			}
+		} catch {
+			// Some local servers append keep-alive lines to SSE streams.
+		}
+	}
+
+	if (chunks.length > 0) {
+		return chunks.join("");
+	}
+
+	try {
+		const data = JSON.parse(responseText) as StreamedChatCompletionChunk;
+		return data.choices?.[0]?.message?.content || "";
+	} catch {
+		return "";
 	}
 }
 
@@ -1986,7 +2084,7 @@ async function processText(
 	plugin.isKillSwitchActive = false;
 
 	new Notice("Generating response. This takes a few seconds..");
-	const statusBarItemEl = document.querySelector(
+	const statusBarItemEl = activeDocument.querySelector(
 		".status-bar .status-bar-item"
 	);
 	if (statusBarItemEl) {
@@ -1996,8 +2094,6 @@ async function processText(
 	}
 
 	let prompt = modifyPrompt(iprompt, plugin.settings.personas, plugin.personasDict);
-
-	console.log("prompt", prompt + ": " + selectedText);
 
 	const body = {
 		model: plugin.settings.llmModel,
@@ -2017,114 +2113,56 @@ async function processText(
 
 	try {
 		if (plugin.settings.outputMode === "append") {
-			modifySelectedText(selectedText + "\n\n");
+			modifySelectedText(selectedText + "\n\n", plugin);
 		}
 		if (plugin.settings.responseFormatting === true) {
-			modifySelectedText(plugin.settings.responseFormatPrepend);
+			modifySelectedText(plugin.settings.responseFormatPrepend, plugin);
 		}
 		if (plugin.settings.stream) {
-			const streamHeaders: Record<string, string> = { "Content-Type": "application/json" };
-			if (plugin.settings.openAIApiKey && plugin.settings.openAIApiKey !== "not-needed") {
-				streamHeaders["Authorization"] = `Bearer ${plugin.settings.openAIApiKey}`;
-			}
-			const response = await fetch(
-				`${plugin.settings.serverAddress}/v1/chat/completions`,
-				{
-					method: "POST",
-					headers: streamHeaders,
-					body: JSON.stringify(body),
-				}
-			);
+			const response = await requestUrl({
+				url: `${plugin.settings.serverAddress}/v1/chat/completions`,
+				method: "POST",
+				headers: buildChatHeaders(plugin),
+				body: JSON.stringify(body),
+			});
 
-			if (!response.ok) {
+			if (response.status < 200 || response.status >= 300) {
 				if (response.status === 401) {
 					throw new Error("Authentication failed (401). Check your API key in plugin settings.");
 				}
 				throw new Error(
-					"Error summarizing text (Fetch): " + response.statusText
+					"Error summarizing text (requestUrl): " + response.text
 				);
 			}
 
-			const reader = response.body && response.body.getReader();
-			let responseStr = "";
-			if (!reader) {
-				console.error("Reader not found");
+			let responseStr = parseStreamedChatCompletion(response.text);
+			if (plugin.settings.extractReasoningResponses) {
+				const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
+				responseStr = extractActualResponse(responseStr, markers);
+			}
+			updateConversationHistory(prompt + ": " + selectedText, responseStr, plugin.conversationHistory, plugin.settings.maxConvHistory);
+			if (!plugin.isKillSwitchActive) {
+				modifySelectedText(responseStr, plugin);
+				if (plugin.settings.responseFormatting === true) {
+					modifySelectedText(plugin.settings.responseFormatAppend, plugin);
+				}
+				new Notice("Text generation complete. Voila!");
 			} else {
-				const decoder = new TextDecoder();
-
-				const readChunk = async () => {
-					if (plugin.isKillSwitchActive) {
-						reader.cancel();
-						new Notice("Text generation stopped by kill switch");
-						plugin.isKillSwitchActive = false; // Reset the kill switch
-						return;
-					}
-
-					const { done, value } = await reader.read();
-
-					if (done) {
-						new Notice("Text generation complete. Voila!");
-						// Apply reasoning extraction to accumulated response for conversation history
-						let finalResponse = responseStr;
-						if (plugin.settings.extractReasoningResponses) {
-							const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
-							finalResponse = extractActualResponse(responseStr, markers);
-						}
-						updateConversationHistory(prompt + ": " + selectedText, finalResponse, plugin.conversationHistory, plugin.settings.maxConvHistory);
-						if (plugin.settings.responseFormatting === true) {
-							modifySelectedText(plugin.settings.responseFormatAppend);
-						}
-						return;
-					}
-
-					let textChunk = decoder.decode(value);
-					const lines = textChunk.split("\n");
-
-					for (const line of lines) {
-						if (line.trim()) {
-							try {
-								let modifiedLine = line.replace(
-									/^data:\s*/,
-									""
-								);
-								if (modifiedLine !== "[DONE]") {
-									const data = JSON.parse(modifiedLine);
-									// Skip delta.reasoning field (separate reasoning stream)
-									if (data.choices[0].delta.content) {
-										let word =
-											data.choices[0].delta.content;
-										modifySelectedText(word);
-										responseStr += word;
-									}
-								}
-							} catch (error) {
-								console.error(
-									"Error parsing JSON chunk:",
-									error
-								);
-							}
-						}
-					}
-					readChunk();
-				};
-				readChunk();
+				new Notice("Text generation stopped by kill switch");
+				plugin.isKillSwitchActive = false;
 			}
 		} else {
-			const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
-			if (plugin.settings.openAIApiKey && plugin.settings.openAIApiKey !== "not-needed") {
-				reqHeaders["Authorization"] = `Bearer ${plugin.settings.openAIApiKey}`;
-			}
 			const response = await requestUrl({
 				url: `${plugin.settings.serverAddress}/v1/chat/completions`,
 				method: "POST",
-				headers: reqHeaders,
+				headers: buildChatHeaders(plugin),
 				body: JSON.stringify(body),
 			});
 
 			const statusCode = response.status;
 
 			if (statusCode >= 200 && statusCode < 300) {
-				const data = await response.json;
+				const data = response.json as ChatCompletionResponse;
 				let summarizedText = data.choices[0].message.content;
 
 				// Use explicit reasoning field if available
@@ -2138,14 +2176,13 @@ async function processText(
 					summarizedText = extractActualResponse(summarizedText, markers);
 				}
 
-				console.log(summarizedText);
 				updateConversationHistory(prompt + ": " + selectedText, summarizedText, plugin.conversationHistory, plugin.settings.maxConvHistory);
 				new Notice("Text generated. Voila!");
 				if (!plugin.isKillSwitchActive) {
 					if (plugin.settings.responseFormatting === true) {
-						modifySelectedText(summarizedText + plugin.settings.responseFormatAppend);
+						modifySelectedText(summarizedText + plugin.settings.responseFormatAppend, plugin);
 					} else {
-						modifySelectedText(summarizedText);
+						modifySelectedText(summarizedText, plugin);
 					}
 				} else {
 					new Notice("Text generation stopped by kill switch");
@@ -2173,8 +2210,8 @@ async function processText(
 	}
 }
 
-function modifySelectedText(text: any) {
-	let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+function modifySelectedText(text: string, plugin: OLocalLLMPlugin) {
+	let view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) {
 		new Notice("No active view");
 	} else {
@@ -2182,6 +2219,7 @@ function modifySelectedText(text: any) {
 		switch (view_mode) {
 			case "preview":
 				new Notice("Cannot summarize in preview");
+				break;
 			case "source":
 				if ("editor" in view) {
 					view.editor.replaceSelection(text);
@@ -2221,11 +2259,9 @@ export class LLMChatModal extends Modal {
 		// Display existing conversation history (if any)
 		chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
 
-		const personasInfoEl = document.createElement('div');
-		personasInfoEl.classList.add("personasInfoStyle");
+		const personasInfoEl = chatHistoryEl.createDiv({ cls: "personasInfoStyle" });
 		const currentPersona = this.plugin.personasDict[this.pluginSettings.personas];
-		personasInfoEl.innerText = "Current persona: " + (currentPersona ? currentPersona.displayName : "Default");
-		chatHistoryEl.appendChild(personasInfoEl);
+		personasInfoEl.setText("Current persona: " + (currentPersona ? currentPersona.displayName : "Default"));
 
 		// Update this part to use conversationHistory
 		this.conversationHistory.forEach((entry) => {
@@ -2251,14 +2287,14 @@ export class LLMChatModal extends Modal {
 		textInput.inputEl.addEventListener('keypress', (event) => {
 			if (event.key === 'Enter' && this.result.trim() !== "") {
 				event.preventDefault();
-				this.handleSubmit();
+				void this.handleSubmit();
 			}
 		});
 
 		this.submitButton = new ButtonComponent(inputRow)
 			.setButtonText("Submit")
 			.setCta()
-			.onClick(() => this.handleSubmit());
+			.onClick(() => void this.handleSubmit());
 		this.submitButton.buttonEl.classList.add("llm-chat-submit-button");
 
 		// Initially disable the submit button
@@ -2364,8 +2400,7 @@ async function processChatInput(
 }
 
 function showThinkingIndicator(chatHistoryEl: HTMLElement) {
-	const thinkingIndicatorEl = document.createElement('div');
-	thinkingIndicatorEl.classList.add('thinking-indicator');
+	const thinkingIndicatorEl = chatHistoryEl.createDiv({ cls: "thinking-indicator" });
 	const tStr = ["Calculating the last digit of pi... just kidding",
 		"Quantum entanglement engaged... thinking deeply",
 		"Reticulating splines... stand by",
@@ -2378,9 +2413,11 @@ function showThinkingIndicator(chatHistoryEl: HTMLElement) {
 		"Asking my man Art Vandalay"];
 	// pick a random index between 0 and size of string array above
 	const randomIndex = Math.floor(Math.random() * tStr.length);
-	thinkingIndicatorEl.innerHTML = tStr[randomIndex] + '<span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span>'; // Inline HTML
-
-	chatHistoryEl.appendChild(thinkingIndicatorEl);
+	thinkingIndicatorEl.createSpan({ text: tStr[randomIndex] });
+	const dots = thinkingIndicatorEl.createSpan({ cls: "dots" });
+	dots.createSpan({ cls: "dot" });
+	dots.createSpan({ cls: "dot" });
+	dots.createSpan({ cls: "dot" });
 }
 
 function hideThinkingIndicator(chatHistoryEl: HTMLElement) {
@@ -2458,7 +2495,14 @@ class EditPromptModal extends Modal {
 //TODO: kill switch
 
 async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugin): Promise<string> {
-	const body: any = {
+	const body: {
+		query: string;
+		topic: string;
+		max_results: number;
+		search_depth: string;
+		include_answer: boolean;
+		time_range?: string;
+	} = {
 		query,
 		topic,
 		max_results: 5,
@@ -2483,8 +2527,8 @@ async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugi
 		throw new Error("Tavily search failed: " + response.status);
 	}
 
-	const results = response.json.results;
-	return results.map((result: any) =>
+	const results = (response.json as TavilySearchResponse).results;
+	return results.map((result) =>
 		`${result.title}\n${result.content}\nSource: ${result.url}\n\n`
 	).join('');
 }
@@ -2523,15 +2567,15 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 				throw new Error("Search failed: " + response.status);
 			}
 
-			const searchResults = response.json.web.results;
-			context = searchResults.map((result: any) => {
+			const searchResults = (response.json as { web: { results: BraveWebResult[] } }).web.results;
+			context = searchResults.map((result) => {
 				let snippets = result.extra_snippets ?
 					'\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
 				return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
 			}).join('');
 		}
 
-		processText(
+		void processText(
 			`Search results for "${query}":\n\n${context}`,
 			"Summarize these search results concisely. Use bullet points for key facts and cite sources inline as [Source](url).",
 			plugin
@@ -2577,13 +2621,13 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 				throw new Error("News search failed: " + response.status);
 			}
 
-			const newsResults = response.json.results;
-			context = newsResults.map((result: any) =>
+			const newsResults = (response.json as { results: BraveNewsResult[] }).results;
+			context = newsResults.map((result) =>
 				`${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
 			).join('');
 		}
 
-		processText(
+		void processText(
 			`News results for "${query}":\n\n${context}`,
 			"Summarize these news results concisely. List key developments as bullet points and cite sources inline as [Source](url).",
 			plugin

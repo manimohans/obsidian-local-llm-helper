@@ -65,7 +65,8 @@ interface FileIndex {
 
 interface EmbeddingData {
 	embeddings: StoredEmbedding[];
-	fileIndex: FileIndex[];
+	fileIndex?: FileIndex[];
+	indexedFiles?: string[];
 	lastIndexed: number;
 	version: string;
 	settings: {
@@ -308,7 +309,7 @@ ${context}`;
 			return false;
 		}
 
-		const cache = app.metadataCache.getFileCache(file) as any;
+		const cache = app.metadataCache.getFileCache(file);
 		const discoveredTags = new Set<string>();
 
 		for (const entry of cache?.tags || []) {
@@ -632,8 +633,7 @@ ${context}`;
 	private splitLongText(text: string): string[] {
 		const chunks: string[] = [];
 
-		// Split by sentences (rough approximation)
-		const sentences = text.split(/(?<=[.!?])\s+/);
+		const sentences = this.splitSentences(text);
 		let currentChunk = '';
 
 		for (const sentence of sentences) {
@@ -653,6 +653,10 @@ ${context}`;
 		}
 
 		return chunks;
+	}
+
+	private splitSentences(text: string): string[] {
+		return text.match(/[^.!?\s][^.!?]*(?:[.!?]+|$)/g) || [text];
 	}
 
 	private getOverlapText(text: string): string {
@@ -835,9 +839,9 @@ ${context}`;
 				for (const file of data.fileIndex) {
 					this.fileIndex.set(file.path, file);
 				}
-			} else if ((data as any).indexedFiles) {
+			} else if (data.indexedFiles) {
 				// Migrate from old format
-				for (const path of (data as any).indexedFiles) {
+				for (const path of data.indexedFiles) {
 					this.fileIndex.set(path, { path, modified: 0, chunks: 0 });
 				}
 			}
@@ -849,7 +853,7 @@ ${context}`;
 		}
 	}
 
-	private shouldRebuildIndex(savedSettings: any): boolean {
+	private shouldRebuildIndex(savedSettings?: EmbeddingData["settings"]): boolean {
 		if (!savedSettings) return true;
 
 		return (
@@ -897,7 +901,7 @@ ${context}`;
 					? `${(storageSize / 1024).toFixed(1)} KB`
 					: `${(storageSize / (1024 * 1024)).toFixed(1)} MB`;
 
-			const indexedFiles = data.fileIndex?.length || (data as any).indexedFiles?.length || 0;
+			const indexedFiles = data.fileIndex?.length || data.indexedFiles?.length || 0;
 
 			return {
 				totalEmbeddings: data.embeddings?.length || 0,
@@ -943,7 +947,7 @@ ${context}`;
 			if (this.vault.getFiles().length > 0) {
 				return;
 			}
-			await new Promise(resolve => setTimeout(resolve, 100));
+			await new Promise(resolve => activeWindow.setTimeout(resolve, 100));
 			attempts++;
 		}
 	}

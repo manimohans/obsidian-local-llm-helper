@@ -5,7 +5,7 @@
 	"minAppVersion": "1.7.0",
 	"description": "Use your own secure local LLM server to work with your text!",
 	"author": "Mani Mohan",
-	"authorUrl": "https://warpcast.com/mani",
+	"authorUrl": "https://mani.ink",
 	"fundingUrl": "https://buymeacoffee.com/manee",
 	"isDesktopOnly": false
 }

@@ -447,24 +447,26 @@ export class VaultAgentService {
 		const approveBtn = buttonRow.createEl("button", { text: "Approve", cls: "mod-cta" });
 		const rejectBtn = buttonRow.createEl("button", { text: "Reject" });
 
-		approveBtn.addEventListener("click", async () => {
-			approveBtn.disabled = true;
-			rejectBtn.disabled = true;
-			statusEl.setText("Applying action...");
-			const result = await this.executeAction(action, context);
-			if (result.success) {
-				action.status = "approved";
-				statusEl.setText(result.message);
-				statusEl.removeClass("is-invalid");
-				statusEl.addClass("is-approved");
-			} else {
-				action.status = "failed";
-				statusEl.setText(result.message);
-				statusEl.removeClass("is-approved");
-				statusEl.addClass("is-invalid");
-				rejectBtn.disabled = false;
-			}
-			scrollToBottom?.();
+		approveBtn.addEventListener("click", () => {
+			void (async () => {
+				approveBtn.disabled = true;
+				rejectBtn.disabled = true;
+				statusEl.setText("Applying action...");
+				const result = await this.executeAction(action, context);
+				if (result.success) {
+					action.status = "approved";
+					statusEl.setText(result.message);
+					statusEl.removeClass("is-invalid");
+					statusEl.addClass("is-approved");
+				} else {
+					action.status = "failed";
+					statusEl.setText(result.message);
+					statusEl.removeClass("is-approved");
+					statusEl.addClass("is-invalid");
+					rejectBtn.disabled = false;
+				}
+				scrollToBottom?.();
+			})();
 		});
 
 		rejectBtn.addEventListener("click", () => {
@@ -488,7 +490,7 @@ export class VaultAgentService {
 			setIcon(icon, "file-text");
 			item.createSpan({ text: source, cls: "rag-chat-source-name" });
 			item.addEventListener("click", () => {
-				this.app.workspace.openLinkText(source, "", false);
+				void this.app.workspace.openLinkText(source, "", false);
 			});
 		}
 	}
@@ -498,8 +500,10 @@ export class VaultAgentService {
 		setIcon(copyButton, "copy");
 		copyButton.setAttribute("aria-label", "Copy response");
 		copyButton.addEventListener("click", () => {
-			navigator.clipboard.writeText(text).then(() => {
+			void navigator.clipboard.writeText(text).then(() => {
 				new Notice("Copied to clipboard");
+			}).catch(() => {
+				new Notice("Could not copy to clipboard");
 			});
 		});
 	}
@@ -670,7 +674,7 @@ export class VaultAgentService {
 	private safePreview(value: unknown): string {
 		try {
 			return JSON.stringify(value, null, 2) || String(value);
-		} catch (_error) {
+		} catch {
 			return String(value);
 		}
 	}

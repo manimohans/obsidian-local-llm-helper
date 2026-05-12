@@ -11,7 +11,6 @@ import {
 	SuggestModal,
 	TFile,
 	requestUrl,
-	setIcon,
 	TextComponent,
 	ButtonComponent,
 	WorkspaceLeaf,
@@ -153,7 +152,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		
 		// Show user-friendly notification about loaded embeddings after a short delay
 		// This ensures all UI elements are ready
-		activeWindow.setTimeout(() => {
+		window.setTimeout(() => {
 			void this.showStorageNotification();
 		}, 500);
 
@@ -655,7 +654,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					})
 			);
 
-			menu.showAtMouseEvent(event as MouseEvent);
+			menu.showAtMouseEvent(event);
 		});
 
 		const statusBarItemEl = this.addStatusBarItem();
@@ -733,7 +732,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			type: RELATED_NOTES_VIEW_TYPE,
 			active: true,
 		});
-		this.app.workspace.revealLeaf(leaf);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		await this.refreshRelatedNotesView();
 	}
 
@@ -774,15 +773,14 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	onunload() {
 		if (this.relatedNotesRefreshTimer !== null) {
-			activeWindow.clearTimeout(this.relatedNotesRefreshTimer);
+			window.clearTimeout(this.relatedNotesRefreshTimer);
 			this.relatedNotesRefreshTimer = null;
 		}
 		if (this.autoIndexTimer !== undefined) {
-			activeWindow.clearTimeout(this.autoIndexTimer);
+			window.clearTimeout(this.autoIndexTimer);
 			this.autoIndexTimer = undefined;
 		}
 
-		this.app.workspace.detachLeavesOfType(RELATED_NOTES_VIEW_TYPE);
 	}
 
 	private truncateRelatedQuery(text: string): string {
@@ -796,10 +794,10 @@ export default class OLocalLLMPlugin extends Plugin {
 		}
 
 		if (this.relatedNotesRefreshTimer !== null) {
-			activeWindow.clearTimeout(this.relatedNotesRefreshTimer);
+			window.clearTimeout(this.relatedNotesRefreshTimer);
 		}
 
-		this.relatedNotesRefreshTimer = activeWindow.setTimeout(() => {
+		this.relatedNotesRefreshTimer = window.setTimeout(() => {
 			this.relatedNotesRefreshTimer = null;
 			void this.refreshRelatedNotesView();
 		}, delayMs);
@@ -861,13 +859,13 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	startAutoIndexTimer() {
 		if (this.autoIndexTimer) {
-			activeWindow.clearTimeout(this.autoIndexTimer);
+			window.clearTimeout(this.autoIndexTimer);
 			this.autoIndexTimer = undefined;
 		}
 		const minutes = this.settings.autoIndexIntervalMinutes;
 		if (minutes > 0) {
 			const scheduleNext = () => {
-				this.autoIndexTimer = activeWindow.setTimeout(async () => {
+				this.autoIndexTimer = window.setTimeout(async () => {
 					await this.runAutoIndex();
 					if (this.autoIndexTimer !== undefined) {
 						scheduleNext();
@@ -1146,9 +1144,9 @@ class OLLMSettingTab extends PluginSettingTab {
 	// Debounced save to prevent lag when typing
 	private debouncedSave() {
 		if (this.saveTimeout) {
-			activeWindow.clearTimeout(this.saveTimeout);
+			window.clearTimeout(this.saveTimeout);
 		}
-		this.saveTimeout = activeWindow.setTimeout(() => {
+		this.saveTimeout = window.setTimeout(() => {
 			void this.plugin.saveSettings();
 		}, 500);
 	}
@@ -1156,7 +1154,7 @@ class OLLMSettingTab extends PluginSettingTab {
 	// Flush any pending debounced save when settings tab is closed
 	hide() {
 		if (this.saveTimeout) {
-			activeWindow.clearTimeout(this.saveTimeout);
+			window.clearTimeout(this.saveTimeout);
 			this.saveTimeout = null;
 			void this.plugin.saveSettings();
 		}
@@ -1170,7 +1168,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// CONNECTION
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Connection" });
+		this.addHeading(containerEl, "Connection");
 
 		new Setting(containerEl)
 			.setName("Provider")
@@ -1222,7 +1220,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// MODELS
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Models" });
+		this.addHeading(containerEl, "Models");
 
 		let chatModelText: TextComponent;
 		new Setting(containerEl)
@@ -1337,7 +1335,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// CHAT
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Chat" });
+		this.addHeading(containerEl, "Chat");
 
 		new Setting(containerEl)
 			.setName("Persona")
@@ -1358,7 +1356,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		const selectedPersonaKey = this.plugin.settings.personas;
 		const selectedPersona = this.plugin.personasDict[selectedPersonaKey];
 		if (selectedPersona && selectedPersonaKey !== "default") {
-			const promptSetting = new Setting(containerEl)
+			new Setting(containerEl)
 				.setName("System prompt")
 				.setDesc("Edit the system prompt for this persona");
 
@@ -1392,6 +1390,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		const newPromptInput = newPersonaContainer.createEl("textarea", {
 			attr: { placeholder: "System prompt for new persona", rows: "3", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 4px;" }
 		});
+		const isBuiltInPersona = selectedPersonaKey in DEFAULT_PERSONAS;
 
 		new Setting(newPersonaContainer)
 			.addButton(btn => btn
@@ -1414,9 +1413,9 @@ class OLLMSettingTab extends PluginSettingTab {
 			.addButton(btn => btn
 				.setButtonText("Delete selected persona")
 				.setWarning()
-				.setDisabled(selectedPersonaKey === "default" || DEFAULT_PERSONAS.hasOwnProperty(selectedPersonaKey) && !this.plugin.settings.savedPersonas?.[selectedPersonaKey])
+				.setDisabled(selectedPersonaKey === "default" || isBuiltInPersona && !this.plugin.settings.savedPersonas?.[selectedPersonaKey])
 				.onClick(async () => {
-					if (DEFAULT_PERSONAS.hasOwnProperty(selectedPersonaKey)) {
+					if (isBuiltInPersona) {
 						new Notice("Cannot delete a built-in persona");
 						return;
 					}
@@ -1479,7 +1478,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h3", { text: "Workflow Automation" });
+		this.addHeading(containerEl, "Workflow Automation");
 
 		containerEl.createEl("p", {
 			text: "Manual workflow recipes draft note changes from RAG context and still require approval before writing.",
@@ -1493,7 +1492,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// OUTPUT
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Output" });
+		this.addHeading(containerEl, "Output");
 
 		new Setting(containerEl)
 			.setName("Streaming")
@@ -1603,7 +1602,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// CUSTOM PROMPT
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Custom Prompt" });
+		this.addHeading(containerEl, "Custom Prompt");
 
 		new Setting(containerEl)
 			.setName("Your prompt")
@@ -1621,7 +1620,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// SAVED PROMPTS
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Saved Prompts" });
+		this.addHeading(containerEl, "Saved Prompts");
 
 		const savedPrompts = this.plugin.settings.customPrompts || [];
 
@@ -1633,16 +1632,18 @@ class OLLMSettingTab extends PluginSettingTab {
 					.addButton(btn => btn
 						.setButtonText("Edit")
 						.onClick(() => {
-							new EditPromptModal(this.app, sp, async (updated) => {
-								sp.title = updated.title;
-								sp.prompt = updated.prompt;
-								sp.updatedAt = Date.now();
-								// Regenerate ID if title changed
-								sp.id = generatePromptId(updated.title);
-								this.plugin.refreshCustomPromptCommands();
-								await this.plugin.saveSettings();
-								new Notice("Prompt updated");
-								this.display();
+							new EditPromptModal(this.app, sp, (updated) => {
+								void (async () => {
+									sp.title = updated.title;
+									sp.prompt = updated.prompt;
+									sp.updatedAt = Date.now();
+									// Regenerate ID if title changed
+									sp.id = generatePromptId(updated.title);
+									this.plugin.refreshCustomPromptCommands();
+									await this.plugin.saveSettings();
+									new Notice("Prompt updated");
+									this.display();
+								})();
 							}).open();
 						}))
 					.addButton(btn => btn
@@ -1702,7 +1703,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// NOTES INDEX (RAG)
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Notes Index (RAG)" });
+		this.addHeading(containerEl, "Notes Index (RAG)");
 		
 		// Top K
 		new Setting(containerEl)
@@ -1774,7 +1775,7 @@ class OLLMSettingTab extends PluginSettingTab {
 							}
 							processedFiles = Math.floor(progress * totalFiles);
 							counterEl.textContent = `   Processing: ${processedFiles}/${totalFiles}`;
-							counterEl.style.fontSize = 'smaller';
+							counterEl.addClass("indexing-counter-small");
 						});
 						new Notice("Indexing complete!");
 						this.updateIndexedFilesCount();
@@ -1798,7 +1799,7 @@ class OLLMSettingTab extends PluginSettingTab {
 				.setValue("Loading...")
 				.setDisabled(true));
 
-		this.updateIndexedFilesCountAsync();
+		void this.updateIndexedFilesCountAsync();
 
 		new Setting(containerEl)
 			.setName("Diagnostics")
@@ -1812,7 +1813,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// INTEGRATIONS
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "Integrations" });
+		this.addHeading(containerEl, "Integrations");
 
 		const searchApiKeyContainer = containerEl.createDiv();
 
@@ -1867,7 +1868,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		// ═══════════════════════════════════════════════════════════
 		// ABOUT
 		// ═══════════════════════════════════════════════════════════
-		containerEl.createEl("h3", { text: "About" });
+		this.addHeading(containerEl, "About");
 
 		new Setting(containerEl)
 			.setName("Version")
@@ -1881,7 +1882,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 	private renderWorkflowDefaultsSetting(containerEl: HTMLElement, recipeId: keyof WorkflowDefaults["recipes"], label: string) {
 		const defaults = this.plugin.settings.workflowDefaults.recipes[recipeId];
-		containerEl.createEl("h4", { text: label });
+		this.addHeading(containerEl, label);
 
 		new Setting(containerEl)
 			.setName("Default source scope")
@@ -1970,12 +1971,16 @@ class OLLMSettingTab extends PluginSettingTab {
 				console.log('📊 Settings: Updated indexed files count to', this.plugin.ragManager.getIndexedFilesCount());
 			} else {
 				// Check again in 100ms
-				activeWindow.setTimeout(checkAndUpdate, 100);
+				window.setTimeout(checkAndUpdate, 100);
 			}
 		};
 		
 		// Start checking after a short delay
-		activeWindow.setTimeout(checkAndUpdate, 50);
+		window.setTimeout(checkAndUpdate, 50);
+	}
+
+	private addHeading(containerEl: HTMLElement, name: string): void {
+		new Setting(containerEl).setName(name).setHeading();
 	}
 }
 
@@ -2275,7 +2280,7 @@ export class LLMChatModal extends Modal {
 
 		const inputRow = inputContainer.createDiv({ cls: "llm-chat-input-row" });
 
-		const askLabel = inputRow.createSpan({ text: "Ask:", cls: "llm-chat-ask-label" });
+		inputRow.createSpan({ text: "Ask:", cls: "llm-chat-ask-label" });
 
 		const textInput = new TextComponent(inputRow)
 			.setPlaceholder("Type your question here...")

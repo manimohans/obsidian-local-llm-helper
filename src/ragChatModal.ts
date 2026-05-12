@@ -1,4 +1,4 @@
-import { App, Modal, TextComponent, ButtonComponent, Notice, DropdownComponent, setIcon, TFile } from "obsidian";
+import { App, Modal, TextComponent, ButtonComponent, setIcon, TFile } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { OLocalLLMSettings } from "../main";
 import { RAGManager, RAGQueryScope } from "./rag";

@@ -1,14 +1,14 @@
-import { TFile, Vault, Plugin, App, requestUrl } from 'obsidian';
+import { TFile, Vault, Plugin, requestUrl } from 'obsidian';
 import { OpenAIEmbeddings } from './openAIEmbeddings';
 import { OLocalLLMSettings } from '../main';
 
-interface Document {
+interface IndexedDocument {
 	pageContent: string;
 	metadata: EmbeddingMetadata;
 }
 
 interface VectorEntry {
-	document: Document;
+	doc: IndexedDocument;
 	vector: number[];
 }
 
@@ -21,19 +21,19 @@ class InMemoryVectorStore {
 		this.embedder = embedder;
 	}
 
-	async addDocuments(docs: Document[]): Promise<void> {
+	async addDocuments(docs: IndexedDocument[]): Promise<void> {
 		if (docs.length === 0) {
 			return;
 		}
 
 		const vectors = await this.embedder.embedDocuments(docs.map(doc => doc.pageContent));
 		for (let i = 0; i < docs.length; i++) {
-			this.entries.push({ document: docs[i], vector: vectors[i] });
+			this.entries.push({ doc: docs[i], vector: vectors[i] });
 		}
 	}
 
 	removeBySource(path: string): void {
-		this.entries = this.entries.filter(entry => entry.document.metadata.source !== path);
+		this.entries = this.entries.filter(entry => entry.doc.metadata.source !== path);
 	}
 
 	clear(): void {
@@ -255,26 +255,26 @@ ${context}`;
 		}
 	}
 
-	private async searchDocuments(query: string, scope: RAGQueryScope): Promise<Document[]> {
+	private async searchDocuments(query: string, scope: RAGQueryScope): Promise<IndexedDocument[]> {
 		const entries = this.getScopedEntries(scope);
 		if (entries.length === 0) {
 			return [];
 		}
 
 		const queryEmbedding = await this.embeddings.embedQuery(query);
-		return entries
-			.map(entry => ({
-				score: this.cosineSimilarity(queryEmbedding, entry.vector),
-				document: entry.document
-			}))
-			.sort((a, b) => b.score - a.score)
-			.slice(0, this.settings.ragTopK)
-			.map(item => item.document);
+			return entries
+				.map(entry => ({
+					score: this.cosineSimilarity(queryEmbedding, entry.vector),
+					doc: entry.doc
+				}))
+				.sort((a, b) => b.score - a.score)
+				.slice(0, this.settings.ragTopK)
+			.map(item => item.doc);
 	}
 
 	private getScopedEntries(scope: RAGQueryScope): VectorEntry[] {
 		return this.vectorStore.entries.filter(entry =>
-			this.matchesScope(entry.document.metadata.source, scope)
+			this.matchesScope(entry.doc.metadata.source, scope)
 		);
 	}
 
@@ -303,7 +303,7 @@ ${context}`;
 			return false;
 		}
 
-		const app = (this.plugin.app as App);
+		const app = this.plugin.app;
 		const file = app.vault.getAbstractFileByPath(sourcePath);
 		if (!(file instanceof TFile)) {
 			return false;
@@ -508,7 +508,7 @@ ${context}`;
 		const fileName = file.basename;
 		const now = Date.now();
 
-		const docs: Document[] = chunks.map((content, i) => ({
+		const docs: IndexedDocument[] = chunks.map((content, i) => ({
 			pageContent: content,
 			metadata: {
 				source: file.path,
@@ -718,7 +718,7 @@ ${context}`;
 		const bestByPath = new Map<string, RelatedNoteResult>();
 
 		for (const entry of entries) {
-			const sourcePath = entry.document.metadata.source;
+			const sourcePath = entry.doc.metadata.source;
 			if (!sourcePath || excludedPaths.has(sourcePath)) {
 				continue;
 			}
@@ -728,12 +728,12 @@ ${context}`;
 				continue;
 			}
 
-			const preview = this.buildPreview(entry.document.pageContent || '');
+			const preview = this.buildPreview(entry.doc.pageContent || '');
 			const existing = bestByPath.get(sourcePath);
 			if (!existing || score > existing.score) {
 				bestByPath.set(sourcePath, {
 					path: sourcePath,
-					fileName: entry.document.metadata.fileName || sourcePath,
+					fileName: entry.doc.metadata.fileName || sourcePath,
 					preview,
 					score
 				});
@@ -767,10 +767,10 @@ ${context}`;
 			console.log('💾 Saving embeddings...');
 
 			const storedEmbeddings: StoredEmbedding[] = this.vectorStore.entries.map(entry => ({
-				id: `${entry.document.metadata.source || 'unknown'}_${entry.document.metadata.chunk || 0}`,
-				content: entry.document.pageContent,
+				id: `${entry.doc.metadata.source || 'unknown'}_${entry.doc.metadata.chunk || 0}`,
+				content: entry.doc.pageContent,
 				vector: entry.vector,
-				metadata: entry.document.metadata
+				metadata: entry.doc.metadata
 			}));
 
 			const embeddingData: EmbeddingData = {
@@ -824,7 +824,7 @@ ${context}`;
 			// Restore vector store
 			this.vectorStore = new InMemoryVectorStore(this.embeddings);
 			this.vectorStore.entries = data.embeddings.map(stored => ({
-				document: {
+				doc: {
 					pageContent: stored.content,
 					metadata: stored.metadata
 				},
@@ -947,7 +947,7 @@ ${context}`;
 			if (this.vault.getFiles().length > 0) {
 				return;
 			}
-			await new Promise(resolve => activeWindow.setTimeout(resolve, 100));
+			await new Promise(resolve => window.setTimeout(resolve, 100));
 			attempts++;
 		}
 	}

@@ -163,9 +163,13 @@
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background-color: #ddd;
+  background-color: #dddddd;
   margin-right: 1px;
   animation: blink 1.5s infinite;
+}
+
+.indexing-counter-small {
+  font-size: var(--font-ui-smaller);
 }
 .dot:nth-child(2) {
   animation-delay: 0.2s;

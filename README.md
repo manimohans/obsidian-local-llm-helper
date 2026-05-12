@@ -4,10 +4,63 @@
 
 <h1 align="center">Local LLM Helper</h1>
 
-An Obsidian plugin that brings the power of local LLMs directly into your notes. Process text, chat with AI, search your vault semantically — all while keeping your data private and local.
+<p align="center">
+  <strong>Private AI for your Obsidian vault.</strong><br>
+  Chat with your notes, find related ideas, run review workflows, and transform text with your own local or OpenAI-compatible models.
+</p>
 
 <p align="center">
-  <img src="assets/hero.png" width="600" alt="Local LLM Helper">
+  <a href="https://github.com/manimohans/obsidian-local-llm-helper/releases"><img alt="GitHub release" src="https://img.shields.io/github/v/release/manimohans/obsidian-local-llm-helper"></a>
+  <a href="https://github.com/manimohans/obsidian-local-llm-helper/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/manimohans/obsidian-local-llm-helper?style=social"></a>
+  <img alt="Desktop and mobile" src="https://img.shields.io/badge/Obsidian-desktop%20%2B%20mobile-7C3AED">
+  <img alt="Local first" src="https://img.shields.io/badge/local--first-yes-22C55E">
+</p>
+
+## Why Use It?
+
+Local LLM Helper turns Obsidian into a private AI workspace without forcing your notes into someone else's app. It works with Ollama, LM Studio, vLLM, LocalAI, OpenAI, and most servers that expose OpenAI-compatible endpoints.
+
+- **Keep your notes in Obsidian** - ask questions, summarize, rewrite, and review without changing tools.
+- **Use local models when privacy matters** - point the plugin at your own chat and embedding server.
+- **Search by meaning, not just keywords** - index your vault and retrieve the notes that actually matter.
+- **Move from chat to action** - generate review notes, task updates, and project summaries behind explicit approval cards.
+
+## Highlights
+
+| Capability | What you get |
+| --- | --- |
+| **RAG chat over your vault** | Ask questions against indexed notes with clickable source references. |
+| **Scoped note chat** | Limit chat to the current note, current folder, selected notes, tags, or the whole vault. |
+| **Related Notes sidebar** | Keep semantically nearby notes visible while writing or researching. |
+| **Manual workflow runner** | Draft weekly reviews, meeting tasks, and project status updates from note context. |
+| **Text commands** | Summarize, rewrite, extract action items, use custom prompts, and run saved prompts. |
+| **Vault Actions** | Let chat propose note writes, then approve or reject each write before it touches your vault. |
+| **Personas and model picker** | Customize assistant behavior and browse models directly from your server. |
+
+## See It In Action
+
+### Chat With Your Notes
+
+Ask questions against your indexed vault, inspect sources, and narrow the context when you need a more precise answer.
+
+<p align="center">
+  <img src="assets/rag-chat.png" width="650" alt="RAG chat with note sources">
+</p>
+
+### Fast Commands From Obsidian
+
+Run text transformations, chats, searches, note indexing, and workflows from the ribbon menu or command palette.
+
+<p align="center">
+  <img src="assets/ribbon-menu.png" width="320" alt="Local LLM Helper ribbon menu">
+</p>
+
+### Settings Built For Real Model Setups
+
+Configure providers, chat models, embedding models, personas, reasoning extraction, RAG indexing, saved prompts, workflow defaults, and web search.
+
+<p align="center">
+  <img src="assets/settings.png" width="650" alt="Local LLM Helper settings">
 </p>
 
 ## Features
@@ -22,6 +75,34 @@ Works with **any server that supports the OpenAI API format** (`/v1/chat/complet
 
 Switch providers anytime from settings. Configure temperature, max tokens, and streaming.
 
+### 📚 Notes RAG
+
+Index your vault for semantic search and AI-powered Q&A:
+
+- **Smart chunking** - Documents split with overlap for better context.
+- **Incremental indexing** - Only re-indexes changed files.
+- **Content preprocessing** - Strips frontmatter and cleans markdown.
+- **Multiple embedding providers** - Works with OpenAI-compatible embedding endpoints.
+- **Configurable retrieval** - Tune how many chunks are sent to the model.
+
+### 🧭 Related Notes Sidebar
+
+Keep semantic context visible while you write:
+
+- Uses selected text when you highlight a passage.
+- Falls back to the full active note when nothing is selected.
+- Shows related notes with scores, paths, and previews.
+- Opens any match instantly or starts scoped RAG chat with selected notes.
+
+### 🧩 Manual Workflow Automation
+
+Run useful review recipes without giving the model autonomous write access:
+
+- **Weekly review** - Turn recent or scoped notes into wins, open loops, and next actions.
+- **Meeting notes to tasks** - Extract action items and follow-ups into a target note.
+- **Project status summary** - Summarize progress, risks, blockers, and next steps.
+- **Approval-first writes** - Every generated note change is reviewed before it is applied.
+
 ### ✍️ Text Processing
 
 Transform selected text with AI-powered commands:
@@ -32,55 +113,28 @@ Transform selected text with AI-powered commands:
 | **Make Professional** | Rewrite in a formal, polished tone |
 | **Generate Action Items** | Extract actionable tasks from text |
 | **Custom Prompt** | Run your single saved custom prompt |
-| **Run Saved Prompt...** | Fuzzy-search and run any of your saved prompts |
-| **Use as Prompt** | Send selection directly to LLM |
-| **Edit with Prompt** | Choose from 8 presets or write custom instructions |
+| **Run Saved Prompt...** | Fuzzy-search and run any saved prompt |
+| **Use as Prompt** | Send selection directly to your model |
+| **Edit with Prompt** | Choose from presets or write custom instructions |
 
-All commands available via Command Palette (prefix: `Text:`) or ribbon menu.
-
-<img src="assets/ribbon-menu.png" width="280" alt="Ribbon Menu">
+All commands are available via Command Palette (`Cmd/Ctrl + P`) or the ribbon menu.
 
 ### 💬 Chat Interfaces
 
-**LLM Chat** - General conversation with your LLM
-- Remembers last 3 exchanges for context
-- Supports all configured personas
+**LLM Chat** for general conversation:
+- Remembers recent exchanges for context.
+- Supports all configured personas.
+- Can propose approval-gated Vault Actions when enabled.
 
-**RAG Chat** - Chat with your indexed notes
-- Semantic search across your vault
-- Clickable source references
-- Example queries to get started
-
-**Workflow Automation** - Run review workflows against your notes
-- Built-in recipes for weekly reviews, meeting notes to tasks, and project status summaries
-- Reuses note, folder, and tag scopes from RAG chat
-- Every note write stays behind explicit approval cards
-- Works from your indexed notes, so you keep local-first review workflows without automatic writes
-
-<img src="assets/rag-chat.png" width="500" alt="RAG Chat">
-
-### 📚 Notes RAG (Retrieval-Augmented Generation)
-
-Index your vault for semantic search and AI-powered Q&A:
-
-- **Smart Chunking** - Documents split with overlap for better context
-- **Incremental Indexing** - Only re-indexes changed files
-- **Content Preprocessing** - Strips frontmatter and cleans markdown
-- **Multiple Providers** - Works with any OpenAI-compatible embeddings endpoint
-
-### 🧭 Related Notes Sidebar
-
-Keep semantic context visible while you write:
-- **Auto-updating sidebar** for the current note or selected text
-- **Preview related notes** with similarity scores
-- **Open any match instantly** or select several notes and jump straight into scoped RAG chat
-
-<img src="assets/rag-settings.png" width="600" alt="RAG Settings">
+**RAG Chat** for note-grounded answers:
+- Searches your indexed notes semantically.
+- Shows clickable sources.
+- Supports vault, note, folder, tag, and selected-note scopes.
 
 ### 🌐 Web Integration
 
-- **Web Search** - Search the web using Tavily or Brave API
-- **News Search** - Get recent news on any topic
+- **Web Search** - Search the web using Tavily or Brave API.
+- **News Search** - Get recent news on any topic.
 
 ### 🎭 Personas
 
@@ -123,10 +177,9 @@ Settings organized into clear sections:
 - Output & Reasoning
 - Custom Prompt & Saved Prompts
 - Notes Index (RAG)
+- Workflow Automation
 - Integrations
 - About & Changelog
-
-<img src="assets/settings.png" width="600" alt="Settings">
 
 ### 🎯 Command Organization
 
@@ -201,7 +254,12 @@ Notes:
 
 ## Changelog
 
-### Unreleased
+### v2.4.2
+
+**Plugin Review Cleanup**
+- Published a fresh release with matching manifest metadata.
+- Added build provenance attestations for release assets.
+- Clarified optional auto-index behavior and kept it disabled by default.
 
 **Workflow Automation**
 - Added a manual workflow runner for weekly review, meeting notes to tasks, and project status summary recipes

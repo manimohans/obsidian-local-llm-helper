@@ -16,6 +16,12 @@
   <img alt="Local first" src="https://img.shields.io/badge/local--first-yes-22C55E">
 </p>
 
+<p align="center">
+  <a href="PRIVACY.md">Privacy and capabilities</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="https://github.com/manimohans/obsidian-local-llm-helper/releases">Releases</a>
+</p>
+
 ## Why Use It?
 
 Local LLM Helper turns Obsidian into a private AI workspace without forcing your notes into someone else's app. It works with Ollama, LM Studio, vLLM, LocalAI, OpenAI, and most servers that expose OpenAI-compatible endpoints.

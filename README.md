@@ -173,7 +173,7 @@ Models like **DeepSeek** and **Qwen** wrap their thinking process in `<think>` b
 
 Browse available models directly from your server:
 - **Browse button** next to Chat and Embedding model fields
-- Fetches from `/v1/models` endpoint (works with Ollama, LM Studio, vLLM, and others)
+- Fetches from `/v1/models` endpoint (chat browse uses the chat/default server; embedding browse uses the embedding server override when set)
 - Searchable picker modal — no more guessing model names
 - Manual text entry always available as fallback
 
@@ -309,7 +309,7 @@ Notes:
 
 **Model Picker**
 - Browse button next to Chat and Embedding model fields
-- Fetches available models from your server's `/v1/models` endpoint
+- Fetches chat models from the chat/default server and embedding models from the embedding server override when set
 - Searchable picker modal — works with Ollama, LM Studio, vLLM, and others
 - Manual text entry always available as fallback
 

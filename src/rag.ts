@@ -1,6 +1,14 @@
 import { TFile, Vault, Plugin, requestUrl } from 'obsidian';
 import { OpenAIEmbeddings } from './openAIEmbeddings';
-import { OLocalLLMSettings } from '../main';
+import type { OLocalLLMSettings } from '../main';
+import {
+	buildOpenAIHeaders,
+	getChatApiKey,
+	getChatCompletionsUrl,
+	getEffectiveEmbeddingApiKey,
+	getEffectiveEmbeddingBaseUrl,
+	getEffectiveEmbeddingServerAddress,
+} from './providerSettings';
 
 interface IndexedDocument {
 	pageContent: string;
@@ -72,8 +80,14 @@ interface EmbeddingData {
 	settings: {
 		provider: string;
 		model: string;
-		serverAddress: string;
+		serverAddress?: string;
+		embeddingServerAddress?: string;
 	};
+}
+
+interface EmbeddingConfigSnapshot {
+	model: string;
+	serverAddress: string;
 }
 
 export type RAGScopeMode = 'vault' | 'paths' | 'folder' | 'tags';
@@ -105,6 +119,7 @@ export class RAGManager {
 	private provider: string;
 	private isLoaded: boolean = false;
 	private cachedEmbeddings: Map<string, StoredEmbedding[]> = new Map();
+	private embeddingConfig: EmbeddingConfigSnapshot;
 
 	constructor(
 		private vault: Vault,
@@ -112,11 +127,8 @@ export class RAGManager {
 		private plugin: Plugin
 	) {
 		this.provider = this.settings.providerType || 'ollama';
-		this.embeddings = new OpenAIEmbeddings(
-			this.settings.openAIApiKey || 'not-needed',
-			this.settings.embeddingModelName,
-			this.settings.serverAddress
-		);
+		this.embeddingConfig = this.createEmbeddingConfig(this.settings);
+		this.embeddings = this.createEmbeddingsClient(this.settings);
 		this.vectorStore = new InMemoryVectorStore(this.embeddings);
 	}
 
@@ -136,18 +148,16 @@ export class RAGManager {
 	}
 
 	updateSettings(settings: OLocalLLMSettings): void {
-		const modelChanged = settings.embeddingModelName !== this.settings.embeddingModelName;
-		const serverChanged = settings.serverAddress !== this.settings.serverAddress;
+		const nextEmbeddingConfig = this.createEmbeddingConfig(settings);
+		const modelChanged = nextEmbeddingConfig.model !== this.embeddingConfig.model;
+		const serverChanged = nextEmbeddingConfig.serverAddress !== this.embeddingConfig.serverAddress;
 
 		this.settings = settings;
 		this.provider = settings.providerType || 'ollama';
+		this.embeddingConfig = nextEmbeddingConfig;
 
 		// Reinitialize embeddings client
-		this.embeddings = new OpenAIEmbeddings(
-			settings.openAIApiKey || 'not-needed',
-			settings.embeddingModelName,
-			settings.serverAddress
-		);
+		this.embeddings = this.createEmbeddingsClient(settings);
 
 		// Update the vector store's embedder reference so new indexing uses the current model
 		this.vectorStore.setEmbedder(this.embeddings);
@@ -156,6 +166,21 @@ export class RAGManager {
 		if (modelChanged || serverChanged) {
 			console.log('⚠️ RAGManager: Embedding settings changed. Re-index recommended for best results.');
 		}
+	}
+
+	private createEmbeddingConfig(settings: OLocalLLMSettings): EmbeddingConfigSnapshot {
+		return {
+			model: settings.embeddingModelName,
+			serverAddress: getEffectiveEmbeddingServerAddress(settings),
+		};
+	}
+
+	private createEmbeddingsClient(settings: OLocalLLMSettings): OpenAIEmbeddings {
+		return new OpenAIEmbeddings(
+			getEffectiveEmbeddingApiKey(settings),
+			settings.embeddingModelName,
+			getEffectiveEmbeddingBaseUrl(settings)
+		);
 	}
 
 	async getRelevantContext(query: string, scope?: RAGQueryScope): Promise<{ context: string; sources: string[] }> {
@@ -211,18 +236,10 @@ Be concise and cite specific notes when possible.
 Context:
 ${context}`;
 
-			const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-			if (this.settings.openAIApiKey && this.settings.openAIApiKey !== 'not-needed') {
-				headers['Authorization'] = `Bearer ${this.settings.openAIApiKey}`;
-			}
-			const baseURL = this.settings.serverAddress.endsWith('/v1')
-				? this.settings.serverAddress
-				: `${this.settings.serverAddress}/v1`;
-
 			const response = await requestUrl({
-				url: `${baseURL}/chat/completions`,
+				url: getChatCompletionsUrl(this.settings),
 				method: 'POST',
-				headers,
+				headers: buildOpenAIHeaders(getChatApiKey(this.settings)),
 				body: JSON.stringify({
 					model: this.settings.llmModel,
 					temperature: this.settings.temperature,
@@ -780,8 +797,9 @@ ${context}`;
 				version: '2.0',
 				settings: {
 					provider: this.provider,
-					model: this.settings.embeddingModelName,
-					serverAddress: this.settings.serverAddress
+					model: this.embeddingConfig.model,
+					serverAddress: this.settings.serverAddress,
+					embeddingServerAddress: this.embeddingConfig.serverAddress
 				}
 			};
 
@@ -855,10 +873,11 @@ ${context}`;
 
 	private shouldRebuildIndex(savedSettings?: EmbeddingData["settings"]): boolean {
 		if (!savedSettings) return true;
+		const savedEmbeddingServer = savedSettings.embeddingServerAddress || savedSettings.serverAddress || "";
 
 		return (
-			savedSettings.model !== this.settings.embeddingModelName ||
-			savedSettings.serverAddress !== this.settings.serverAddress
+			savedSettings.model !== this.embeddingConfig.model ||
+			savedEmbeddingServer !== this.embeddingConfig.serverAddress
 		);
 	}
 

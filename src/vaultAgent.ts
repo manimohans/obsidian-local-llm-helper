@@ -1,6 +1,7 @@
 import { App, MarkdownView, Notice, TFile, requestUrl, setIcon } from "obsidian";
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type OLocalLLMPlugin from "../main";
+import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
 
 export interface ConversationEntry {
 	prompt: string;
@@ -84,15 +85,10 @@ export class VaultAgentService {
 	constructor(private app: App, private plugin: OLocalLLMPlugin) {}
 
 	async submitChat(request: SubmitChatRequest): Promise<AgentResponse> {
-		const headers: Record<string, string> = { "Content-Type": "application/json" };
-		if (this.plugin.settings.openAIApiKey && this.plugin.settings.openAIApiKey !== "not-needed") {
-			headers["Authorization"] = `Bearer ${this.plugin.settings.openAIApiKey}`;
-		}
-
 		const response = await requestUrl({
 			url: this.getChatCompletionsUrl(),
 			method: "POST",
-			headers,
+			headers: buildOpenAIHeaders(getChatApiKey(this.plugin.settings)),
 			body: JSON.stringify(this.buildRequestBody(request)),
 			throw: false,
 		});
@@ -668,10 +664,7 @@ export class VaultAgentService {
 	}
 
 	private getChatCompletionsUrl(): string {
-		const serverAddress = this.plugin.settings.serverAddress.replace(/\/+$/, "");
-		return serverAddress.endsWith("/v1")
-			? `${serverAddress}/chat/completions`
-			: `${serverAddress}/v1/chat/completions`;
+		return getChatCompletionsUrl(this.plugin.settings);
 	}
 
 	private isRecord(value: unknown): value is Record<string, unknown> {

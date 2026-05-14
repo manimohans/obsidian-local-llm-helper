@@ -4,6 +4,7 @@ import type { AgentResponse, ChatEnvironmentContext, AgentAction } from "./vault
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type { RAGQueryScope } from "./rag";
 import type { WorkflowDefaults, WorkflowRecipeDefaults, WorkflowRecipeId } from "./workflowTypes";
+import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
 
 export interface WorkflowRecipeDefinition {
 	id: WorkflowRecipeId;
@@ -145,15 +146,10 @@ export class WorkflowRunnerService {
 	}
 
 	private async submitWorkflowPrompt(prompt: string): Promise<string> {
-		const headers: Record<string, string> = { "Content-Type": "application/json" };
-		if (this.plugin.settings.openAIApiKey && this.plugin.settings.openAIApiKey !== "not-needed") {
-			headers["Authorization"] = `Bearer ${this.plugin.settings.openAIApiKey}`;
-		}
-
 		const response = await requestUrl({
 			url: this.getChatCompletionsUrl(),
 			method: "POST",
-			headers,
+			headers: buildOpenAIHeaders(getChatApiKey(this.plugin.settings)),
 			body: JSON.stringify({
 				model: this.plugin.settings.llmModel,
 				messages: [
@@ -328,9 +324,6 @@ export class WorkflowRunnerService {
 	}
 
 	private getChatCompletionsUrl(): string {
-		const serverAddress = this.plugin.settings.serverAddress.replace(/\/+$/, "");
-		return serverAddress.endsWith("/v1")
-			? `${serverAddress}/chat/completions`
-			: `${serverAddress}/v1/chat/completions`;
+		return getChatCompletionsUrl(this.plugin.settings);
 	}
 }

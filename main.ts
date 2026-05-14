@@ -31,11 +31,24 @@ import { submitGeneralChat, updateConversationHistory as recordConversationHisto
 import { WorkflowModal } from './src/workflowModal';
 import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
 import type { WorkflowDefaults } from './src/workflowTypes';
+import {
+	buildOpenAIHeaders,
+	getChatApiKey,
+	getChatCompletionsUrl,
+	getChatModelsUrl,
+	getEffectiveEmbeddingApiKey,
+	getEffectiveEmbeddingServerAddress,
+	getEmbeddingModelsUrl,
+	normalizeOptionalServerAddress,
+	normalizeServerAddress,
+	type ModelEndpointTarget,
+} from './src/providerSettings';
 
 // Remember to rename these classes and interfaces!
 
 export interface OLocalLLMSettings {
 	serverAddress: string;
+	embeddingServerAddress: string;
 	llmModel: string;
 	stream: boolean;
 	customPrompt: string;
@@ -52,6 +65,7 @@ export interface OLocalLLMSettings {
 	embeddingModelName: string;
 	braveSearchApiKey: string;
 	openAIApiKey?: string;
+	embeddingApiKey?: string;
 	searchProvider: string;
 	tavilyApiKey: string;
 	searxngInstanceUrl: string;
@@ -69,6 +83,7 @@ export interface OLocalLLMSettings {
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	serverAddress: "http://localhost:11434",
+	embeddingServerAddress: "",
 	llmModel: "llama3",
 	maxTokens: 1024,
 	temperature: 0.7,
@@ -85,6 +100,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	embeddingModelName: "mxbai-embed-large",
 	braveSearchApiKey: "",
 	openAIApiKey: "lm-studio",
+	embeddingApiKey: "",
 	searchProvider: "tavily",
 	tavilyApiKey: "",
 	searxngInstanceUrl: "",
@@ -99,16 +115,6 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	showAgentDebug: false,
 	workflowDefaults: createDefaultWorkflowDefaults(),
 };
-
-function normalizeServerAddress(address: string): string {
-	const trimmed = address.trim();
-	if (!trimmed) return trimmed;
-	if (!/^https?:\/\//i.test(trimmed)) {
-		return "http://" + trimmed;
-	}
-	// Strip trailing slash
-	return trimmed.replace(/\/+$/, '');
-}
 
 function normalizeSearxngInstanceUrl(url: string): string {
 	return normalizeServerAddress(url);
@@ -709,8 +715,9 @@ export default class OLocalLLMPlugin extends Plugin {
 		const serverAddress = this.settings.serverAddress;
 		const llmModel = this.settings.llmModel;
 		const embeddingModel = this.settings.embeddingModelName;
+		const embeddingServerAddress = getEffectiveEmbeddingServerAddress(this.settings);
 
-		console.log(`Configuration - Server: ${serverAddress}, LLM: ${llmModel}, Embeddings: ${embeddingModel}`);
+		console.log(`Configuration - Chat server: ${serverAddress}, Embedding server: ${embeddingServerAddress}, LLM: ${llmModel}, Embeddings: ${embeddingModel}`);
 		console.log('Using OpenAI-compatible API endpoints (/v1/chat/completions, /v1/embeddings)');
 
 		if (!serverAddress || serverAddress.trim() === '') {
@@ -1002,15 +1009,18 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.settings.workflowDefaults = mergeWorkflowDefaults(savedData?.workflowDefaults);
 
 		this.settings.serverAddress = normalizeServerAddress(this.settings.serverAddress);
+		this.settings.embeddingServerAddress = normalizeOptionalServerAddress(this.settings.embeddingServerAddress);
 		this.settings.searxngInstanceUrl = normalizeSearxngInstanceUrl(this.settings.searxngInstanceUrl || "");
 		this.rebuildPersonas();
 
 		console.log('✅ LLM Helper: Final settings after merge:', {
 			provider: this.settings.providerType,
 			server: this.settings.serverAddress,
+			embeddingServer: getEffectiveEmbeddingServerAddress(this.settings),
 			embeddingModel: this.settings.embeddingModelName,
 			llmModel: this.settings.llmModel,
 			hasApiKey: !!this.settings.openAIApiKey,
+			hasEmbeddingApiKey: !!this.settings.embeddingApiKey,
 			hasBraveKey: !!this.settings.braveSearchApiKey,
 			hasSearxngInstanceUrl: !!this.settings.searxngInstanceUrl
 		});
@@ -1135,7 +1145,8 @@ export default class OLocalLLMPlugin extends Plugin {
 		// Plugin settings diagnostics
 		console.log('📋 Plugin Settings:');
 		console.log('  Provider:', this.settings.providerType);
-		console.log('  Server:', this.settings.serverAddress);
+		console.log('  Chat Server:', this.settings.serverAddress);
+		console.log('  Embedding Server:', getEffectiveEmbeddingServerAddress(this.settings));
 		console.log('  Embedding Model:', this.settings.embeddingModelName);
 		console.log('  LLM Model:', this.settings.llmModel);
 		
@@ -1180,16 +1191,18 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 }
 
-async function fetchAvailableModels(settings: OLocalLLMSettings): Promise<string[]> {
-	const headers: Record<string, string> = { "Content-Type": "application/json" };
-	if (settings.openAIApiKey && settings.openAIApiKey !== "not-needed") {
-		headers["Authorization"] = `Bearer ${settings.openAIApiKey}`;
-	}
+async function fetchAvailableModels(settings: OLocalLLMSettings, target: ModelEndpointTarget): Promise<string[]> {
+	const apiKey = target === "embedding"
+		? getEffectiveEmbeddingApiKey(settings)
+		: getChatApiKey(settings);
+	const url = target === "embedding"
+		? getEmbeddingModelsUrl(settings)
+		: getChatModelsUrl(settings);
 
 	const response = await requestUrl({
-		url: `${settings.serverAddress}/v1/models`,
+		url,
 		method: "GET",
-		headers,
+		headers: buildOpenAIHeaders(apiKey),
 	});
 
 	if (response.status < 200 || response.status >= 300) {
@@ -1293,8 +1306,8 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Server URL")
-			.setDesc("Ollama: localhost:11434 | LM Studio: localhost:1234 | vLLM: localhost:8000")
+			.setName("Chat/default server URL")
+			.setDesc("Used for chat and as the embedding fallback. Ollama: localhost:11434 | LM Studio: localhost:1234 | vLLM: localhost:8000")
 			.addText((text) =>
 				text
 					.setPlaceholder("http://localhost:11434")
@@ -1307,8 +1320,8 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		if (this.plugin.settings.providerType === 'openai') {
 			new Setting(containerEl)
-				.setName("API Key")
-				.setDesc("Required for OpenAI. For local servers, use 'not-needed'")
+				.setName("Chat/default API key")
+				.setDesc("Required for OpenAI. Embeddings inherit this unless an embedding API key is set. For local servers, use 'not-needed'")
 				.addText(text => text
 					.setPlaceholder("not-needed")
 					.setValue(this.plugin.settings.openAIApiKey || '')
@@ -1318,6 +1331,32 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 				);
 		}
+
+		new Setting(containerEl)
+			.setName("Embedding server URL")
+			.setDesc("Optional. Leave blank to use the chat/default server. Use this for a separate OpenAI-compatible embedding server.")
+			.addText((text) =>
+				text
+					.setPlaceholder("http://localhost:8081")
+					.setValue(this.plugin.settings.embeddingServerAddress || "")
+					.onChange((value) => {
+						this.plugin.settings.embeddingServerAddress = normalizeOptionalServerAddress(value);
+						this.debouncedSave();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Embedding API key")
+			.setDesc("Optional. Leave blank to inherit the chat/default API key. Use 'not-needed' to send no Authorization header.")
+			.addText((text) =>
+				text
+					.setPlaceholder("inherit chat/default key")
+					.setValue(this.plugin.settings.embeddingApiKey || "")
+					.onChange((value) => {
+						this.plugin.settings.embeddingApiKey = value.trim();
+						this.debouncedSave();
+					})
+			);
 
 		// ═══════════════════════════════════════════════════════════
 		// MODELS
@@ -1344,7 +1383,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					try {
 						btn.setDisabled(true);
 						btn.setButtonText("Loading...");
-						const models = await fetchAvailableModels(this.plugin.settings);
+						const models = await fetchAvailableModels(this.plugin.settings, "chat");
 						if (models.length === 0) {
 							new Notice("No models found on server");
 							return;
@@ -1383,7 +1422,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					try {
 						btn.setDisabled(true);
 						btn.setButtonText("Loading...");
-						const models = await fetchAvailableModels(this.plugin.settings);
+						const models = await fetchAvailableModels(this.plugin.settings, "embedding");
 						if (models.length === 0) {
 							new Notice("No models found on server");
 							return;
@@ -2171,11 +2210,7 @@ interface ObsidianCommandApp extends App {
 }
 
 function buildChatHeaders(plugin: OLocalLLMPlugin): Record<string, string> {
-	const headers: Record<string, string> = { "Content-Type": "application/json" };
-	if (plugin.settings.openAIApiKey && plugin.settings.openAIApiKey !== "not-needed") {
-		headers["Authorization"] = `Bearer ${plugin.settings.openAIApiKey}`;
-	}
-	return headers;
+	return buildOpenAIHeaders(getChatApiKey(plugin.settings));
 }
 
 function parseStreamedChatCompletion(responseText: string): string {
@@ -2257,7 +2292,7 @@ async function processText(
 		}
 		if (plugin.settings.stream) {
 			const response = await requestUrl({
-				url: `${plugin.settings.serverAddress}/v1/chat/completions`,
+				url: getChatCompletionsUrl(plugin.settings),
 				method: "POST",
 				headers: buildChatHeaders(plugin),
 				body: JSON.stringify(body),
@@ -2290,7 +2325,7 @@ async function processText(
 			}
 		} else {
 			const response = await requestUrl({
-				url: `${plugin.settings.serverAddress}/v1/chat/completions`,
+				url: getChatCompletionsUrl(plugin.settings),
 				method: "POST",
 				headers: buildChatHeaders(plugin),
 				body: JSON.stringify(body),

@@ -49,7 +49,7 @@ export class OpenAIEmbeddings {
 		baseURL: string,
 		options: OpenAIEmbeddingsOptions = {}
 	) {
-		this.apiKey = apiKey || "not-needed";
+		this.apiKey = apiKey.trim() || "not-needed";
 		this.modelName = modelName;
 		this.baseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL}/v1`;
 		this.batchSize = options.batchSize ?? 96;
@@ -221,6 +221,20 @@ export class OpenAIEmbeddings {
 				`Embeddings endpoint not found. Please ensure:\n` +
 					`• Your server supports /v1/embeddings\n` +
 					`• An embedding model is loaded (e.g., nomic-embed-text, mxbai-embed-large)`
+			);
+		}
+
+		if (
+			msg.includes("501") ||
+			msg.toLowerCase().includes("not_supported") ||
+			msg.toLowerCase().includes("does not support embeddings") ||
+			msg.includes("--embeddings")
+		) {
+			return new Error(
+				`Embeddings are not supported by the configured embedding server. Please ensure:\n` +
+					`• The Embedding server URL points to a server that supports /v1/embeddings\n` +
+					`• The embedding server is configured with an embedding-capable model or endpoint\n` +
+					`• If chat and embeddings run on different ports, set Embedding server URL in plugin settings`
 			);
 		}
 

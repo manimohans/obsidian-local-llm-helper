@@ -1,5 +1,6 @@
 import { App, Editor, EditorPosition, MarkdownView, Notice, requestUrl } from "obsidian";
-import { OLocalLLMSettings } from "../main";
+import type { OLocalLLMSettings } from "../main";
+import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
 
 export async function generateAndAppendTags(app: App, settings: OLocalLLMSettings) {
 	const view = app.workspace.getActiveViewOfType(MarkdownView);
@@ -39,9 +40,9 @@ async function generateTags(text: string, settings: OLocalLLMSettings): Promise<
 	};
 
 	const response = await requestUrl({
-		url: `${settings.serverAddress}/v1/chat/completions`,
+		url: getChatCompletionsUrl(settings),
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: buildOpenAIHeaders(getChatApiKey(settings)),
 		body: JSON.stringify(body)
 	});
 

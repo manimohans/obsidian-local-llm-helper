@@ -112,6 +112,14 @@ ollama list  # Verify model is installed
 - **LLM Model**: Name of loaded chat model
 - **OpenAI API Key**: `lm-studio` (can be anything)
 
+#### Separate OpenAI-compatible Chat and Embedding Servers:
+- **Provider Type**: OpenAI
+- **Chat/default server URL**: `http://localhost:8080`
+- **LLM Model**: Name of loaded chat model
+- **Embedding server URL**: `http://localhost:8081`
+- **Embedding Model**: Name of loaded embedding model
+- **Embedding API Key**: leave blank to inherit the chat/default key, or use `not-needed` to send no Authorization header
+
 ### 4. **Performance Issues**
 
 **Symptoms**: Slow indexing or timeouts
@@ -166,6 +174,12 @@ ollama list  # Verify model is installed
    curl http://localhost:1234/v1/embeddings \
      -H "Content-Type: application/json" \
      -d '{"model": "nomic-embed-text", "input": "test"}'
+
+   # For a separate OpenAI-compatible embedding server
+   curl http://localhost:8081/v1/embeddings \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer your-key" \
+     -d '{"model": "your-embedding-model", "input": "Embedding test"}'
    ```
 
 ### 7. **Getting Help**

@@ -458,12 +458,14 @@ export class VaultAgentService {
 					statusEl.setText(result.message);
 					statusEl.removeClass("is-invalid");
 					statusEl.addClass("is-approved");
+					new Notice(result.message);
 				} else {
 					action.status = "failed";
 					statusEl.setText(result.message);
 					statusEl.removeClass("is-approved");
 					statusEl.addClass("is-invalid");
 					rejectBtn.disabled = false;
+					new Notice(result.message);
 				}
 				scrollToBottom?.();
 			})();
@@ -476,6 +478,7 @@ export class VaultAgentService {
 			statusEl.setText("Action rejected. No changes were made.");
 			statusEl.removeClass("is-approved");
 			statusEl.addClass("is-rejected");
+			new Notice("Action rejected. No changes were made.");
 			scrollToBottom?.();
 		});
 	}

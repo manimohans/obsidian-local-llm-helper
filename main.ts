@@ -52,6 +52,7 @@ export interface OLocalLLMSettings {
 	openAIApiKey?: string;
 	searchProvider: string;
 	tavilyApiKey: string;
+	searxngInstanceUrl: string;
 	savedPersonas?: { [key: string]: Persona };
 	customPrompts?: CustomPrompt[];
 	extractReasoningResponses?: boolean;
@@ -84,6 +85,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	openAIApiKey: "lm-studio",
 	searchProvider: "tavily",
 	tavilyApiKey: "",
+	searxngInstanceUrl: "",
 	savedPersonas: undefined,
 	customPrompts: [],
 	extractReasoningResponses: false,
@@ -104,6 +106,10 @@ function normalizeServerAddress(address: string): string {
 	}
 	// Strip trailing slash
 	return trimmed.replace(/\/+$/, '');
+}
+
+function normalizeSearxngInstanceUrl(url: string): string {
+	return normalizeServerAddress(url);
 }
 
 export default class OLocalLLMPlugin extends Plugin {
@@ -267,6 +273,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Summarize the following text concisely. Preserve markdown formatting:",
 						this
 					);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -283,6 +291,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
 						this
 					);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -299,6 +309,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
 						this
 					);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -316,6 +328,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						this.settings.customPrompt,
 						this
 					);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -332,6 +346,8 @@ export default class OLocalLLMPlugin extends Plugin {
 						"Respond to the following prompt:",
 						this
 					);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -399,6 +415,8 @@ export default class OLocalLLMPlugin extends Plugin {
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					void processWebSearch(selectedText, this);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -410,6 +428,8 @@ export default class OLocalLLMPlugin extends Plugin {
 				let selectedText = this.getSelectedText();
 				if (selectedText.length > 0) {
 					void processNewsSearch(selectedText, this);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -720,6 +740,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	async activateRelatedNotesView(): Promise<void> {
 		await this.captureRelatedNotesContext();
+		const context = await this.getRelatedNotesContext();
 
 		const existingLeaf = this.app.workspace.getLeavesOfType(RELATED_NOTES_VIEW_TYPE)[0];
 		const leaf = existingLeaf || this.app.workspace.getRightLeaf(false);
@@ -734,6 +755,16 @@ export default class OLocalLLMPlugin extends Plugin {
 		});
 		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 		await this.refreshRelatedNotesView();
+
+		if (!context) {
+			new Notice("Open a note or select text to find related notes.");
+			return;
+		}
+		if (this.ragManager.getIndexedFilesCount() === 0) {
+			new Notice("Index your notes first: run Notes: Index notes for RAG.");
+			return;
+		}
+		new Notice("Related Notes opened in the right sidebar.");
 	}
 
 	async refreshRelatedNotesView(): Promise<void> {
@@ -911,6 +942,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.settings.workflowDefaults = mergeWorkflowDefaults(savedData?.workflowDefaults);
 
 		this.settings.serverAddress = normalizeServerAddress(this.settings.serverAddress);
+		this.settings.searxngInstanceUrl = normalizeSearxngInstanceUrl(this.settings.searxngInstanceUrl || "");
 		this.rebuildPersonas();
 
 		console.log('✅ LLM Helper: Final settings after merge:', {
@@ -919,7 +951,8 @@ export default class OLocalLLMPlugin extends Plugin {
 			embeddingModel: this.settings.embeddingModelName,
 			llmModel: this.settings.llmModel,
 			hasApiKey: !!this.settings.openAIApiKey,
-			hasBraveKey: !!this.settings.braveSearchApiKey
+			hasBraveKey: !!this.settings.braveSearchApiKey,
+			hasSearxngInstanceUrl: !!this.settings.searxngInstanceUrl
 		});
 	}
 
@@ -956,6 +989,8 @@ export default class OLocalLLMPlugin extends Plugin {
 				if (selectedText.length > 0) {
 					new Notice("Running: " + customPrompt.title);
 					void processText(selectedText, customPrompt.prompt, this);
+				} else {
+					new Notice("Please select some text first");
 				}
 			},
 		});
@@ -1019,13 +1054,18 @@ export default class OLocalLLMPlugin extends Plugin {
 		}
 
 		new Notice('Generating backlinks...');
-		const backlinks = await this.backlinkGenerator.generateBacklinks(selectedText);
+		try {
+			const backlinks = await this.backlinkGenerator.generateBacklinks(selectedText);
 
-		if (backlinks.length > 0) {
-			editor.replaceSelection(`${selectedText}\n\nRelated:\n${backlinks.join('\n')}`);
-			new Notice(`Generated ${backlinks.length} backlinks`);
-		} else {
-			new Notice('No relevant backlinks found');
+			if (backlinks.length > 0) {
+				editor.replaceSelection(`${selectedText}\n\nRelated:\n${backlinks.join('\n')}`);
+				new Notice(`Generated ${backlinks.length} backlinks`);
+			} else {
+				new Notice('No relevant backlinks found');
+			}
+		} catch (error) {
+			console.error('Error generating backlinks:', error);
+			new Notice('Failed to generate backlinks. Check console for details.');
 		}
 	}
 
@@ -1834,6 +1874,19 @@ class OLLMSettingTab extends PluginSettingTab {
 								this.debouncedSave();
 							})
 					);
+			} else if (this.plugin.settings.searchProvider === "searxng") {
+				new Setting(searchApiKeyContainer)
+					.setName("SearXNG instance URL")
+					.setDesc("Required for SearXNG search. The instance must have JSON output enabled under search.formats.")
+					.addText((text) =>
+						text
+							.setPlaceholder("https://search.example.com")
+							.setValue(this.plugin.settings.searxngInstanceUrl)
+							.onChange((value) => {
+								this.plugin.settings.searxngInstanceUrl = value.trim();
+								this.debouncedSave();
+							})
+					);
 			} else {
 				new Setting(searchApiKeyContainer)
 					.setName("Tavily API key")
@@ -1857,6 +1910,7 @@ class OLLMSettingTab extends PluginSettingTab {
 				dropdown
 					.addOption("tavily", "Tavily")
 					.addOption("brave", "Brave")
+					.addOption("searxng", "SearXNG")
 					.setValue(this.plugin.settings.searchProvider)
 					.onChange((value) => {
 						this.plugin.settings.searchProvider = value;
@@ -2032,6 +2086,22 @@ interface BraveNewsResult {
 	description: string;
 	url: string;
 	published_time?: string;
+}
+
+interface SearxngSearchResult {
+	title?: string;
+	content?: string;
+	url?: string;
+	engines?: string[];
+	publishedDate?: string;
+	published_date?: string;
+}
+
+interface SearxngSearchResponse {
+	results?: SearxngSearchResult[];
+	answers?: Array<{ answer?: string; url?: string; engine?: string } | string>;
+	suggestions?: string[];
+	error?: string;
 }
 
 interface ObsidianCommandApp extends App {
@@ -2393,6 +2463,7 @@ async function processChatInput(
 			},
 		);
 		updateConversationHistory(text, renderedMessage, conversationHistory, plugin.settings.maxConvHistory);
+		new Notice("Chat response ready.");
 		scrollToBottom(chatContainer);
 	} catch (error) {
 		console.error("Error during request:", error);
@@ -2540,6 +2611,72 @@ async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugi
 	).join('');
 }
 
+function buildSearxngSearchUrl(query: string, topic: string, instanceUrl: string): string {
+	const normalizedInstanceUrl = normalizeSearxngInstanceUrl(instanceUrl);
+	const searchUrl = new URL(normalizedInstanceUrl);
+	const basePath = searchUrl.pathname.replace(/\/+$/, '');
+	searchUrl.pathname = basePath.endsWith("/search") ? basePath : `${basePath}/search`;
+	searchUrl.search = "";
+	searchUrl.hash = "";
+	searchUrl.searchParams.set("q", query);
+	searchUrl.searchParams.set("format", "json");
+	if (topic === "news") {
+		searchUrl.searchParams.set("categories", "news");
+		searchUrl.searchParams.set("time_range", "day");
+	}
+	return searchUrl.toString();
+}
+
+function formatSearxngResults(response: SearxngSearchResponse): string {
+	const results = response.results || [];
+	return results
+		.filter((result) => result.url && result.title)
+		.slice(0, 5)
+		.map((result) => {
+			const content = result.content ? `\n${result.content}` : "";
+			const engines = result.engines && result.engines.length > 0 ? `\nEngines: ${result.engines.join(", ")}` : "";
+			const published = result.publishedDate || result.published_date;
+			const publishedLine = published ? `\nPublished: ${published}` : "";
+			return `${result.title}${content}\nSource: ${result.url}${engines}${publishedLine}\n\n`;
+		})
+		.join('');
+}
+
+function getSearchErrorMessage(error: unknown, fallback: string): string {
+	return error instanceof Error ? error.message : fallback;
+}
+
+async function searxngSearch(query: string, topic: string, plugin: OLocalLLMPlugin): Promise<string> {
+	const response = await requestUrl({
+		url: buildSearxngSearchUrl(query, topic, plugin.settings.searxngInstanceUrl),
+		method: "GET",
+		headers: {
+			"Accept": "application/json",
+		},
+	});
+
+	if (response.status === 403) {
+		throw new Error("SearXNG search failed: JSON output is not enabled or access is forbidden for this instance. Add json to search.formats in settings.yml.");
+	}
+	if (response.status !== 200) {
+		throw new Error("SearXNG search failed: " + response.status);
+	}
+
+	const searchResponse = response.json as SearxngSearchResponse;
+	if (!searchResponse || typeof searchResponse !== "object") {
+		throw new Error("SearXNG search failed: the instance did not return a JSON response.");
+	}
+	if (searchResponse.error) {
+		throw new Error("SearXNG search failed: " + searchResponse.error);
+	}
+
+	const context = formatSearxngResults(searchResponse);
+	if (!context) {
+		throw new Error("SearXNG search returned no usable results.");
+	}
+	return context;
+}
+
 async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 	const provider = plugin.settings.searchProvider;
 
@@ -2551,6 +2688,10 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 		new Notice("Please set your Brave Search API key in settings");
 		return;
 	}
+	if (provider === "searxng" && !plugin.settings.searxngInstanceUrl) {
+		new Notice("Please set your SearXNG instance URL in settings");
+		return;
+	}
 
 	new Notice("Searching the web...");
 
@@ -2559,6 +2700,8 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 
 		if (provider === "tavily") {
 			context = await tavilySearch(query, "general", plugin);
+		} else if (provider === "searxng") {
+			context = await searxngSearch(query, "general", plugin);
 		} else {
 			const response = await requestUrl({
 				url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
@@ -2590,7 +2733,7 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 
 	} catch (error) {
 		console.error("Web search error:", error);
-		new Notice("Web search failed. Check console for details.");
+		new Notice(getSearchErrorMessage(error, "Web search failed. Check console for details."));
 	}
 }
 
@@ -2605,6 +2748,10 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 		new Notice("Please set your Brave Search API key in settings");
 		return;
 	}
+	if (provider === "searxng" && !plugin.settings.searxngInstanceUrl) {
+		new Notice("Please set your SearXNG instance URL in settings");
+		return;
+	}
 
 	new Notice("Searching for news...");
 
@@ -2613,6 +2760,8 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 
 		if (provider === "tavily") {
 			context = await tavilySearch(query, "news", plugin);
+		} else if (provider === "searxng") {
+			context = await searxngSearch(query, "news", plugin);
 		} else {
 			const response = await requestUrl({
 				url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
@@ -2641,6 +2790,6 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 		);
 	} catch (error) {
 		console.error("News search error:", error);
-		new Notice("News search failed. Check console for details.");
+		new Notice(getSearchErrorMessage(error, "News search failed. Check console for details."));
 	}
 }

@@ -9,7 +9,7 @@ The plugin makes network requests only when a user-configured feature needs them
 - Chat and text commands send selected text or prompts to the configured chat endpoint.
 - RAG indexing sends note chunks to the configured embedding endpoint.
 - RAG chat sends retrieved note context to the configured chat endpoint.
-- Optional web and news search use the configured Tavily or Brave Search API.
+- Optional web and news search use the configured Tavily API, Brave Search API, or SearXNG instance.
 
 Endpoints may be local, such as Ollama or LM Studio, or remote, such as OpenAI-compatible hosted APIs. Users control the server address and API keys in plugin settings.
 

@@ -1,4 +1,4 @@
-import { App, Modal, TextComponent, ButtonComponent, setIcon, TFile } from "obsidian";
+import { App, Modal, TextComponent, ButtonComponent, setIcon, TFile, Notice } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { OLocalLLMSettings } from "../main";
 import { RAGManager, RAGQueryScope } from "./rag";
@@ -177,6 +177,7 @@ export class RAGChatModal extends Modal {
 				},
 			);
 			this.updateConversationHistory(query, renderedMessage);
+			new Notice("Notes chat response ready.");
 
 			this.scrollToBottom();
 		} catch (error) {
@@ -184,10 +185,11 @@ export class RAGChatModal extends Modal {
 
 			const errorMsg = this.chatHistoryEl.createDiv({ cls: "rag-chat-message rag-chat-message-error" });
 			errorMsg.createSpan({
-				text: error.message || "Failed to get response. Make sure notes are indexed."
+				text: error instanceof Error ? error.message : "Failed to get response. Make sure notes are indexed."
 			});
 
 			console.error("RAG Chat Error:", error);
+			new Notice(error instanceof Error ? error.message : "Notes chat failed. Make sure notes are indexed.");
 			this.scrollToBottom();
 		}
 	}

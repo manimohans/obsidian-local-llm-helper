@@ -139,8 +139,9 @@ All commands are available via Command Palette (`Cmd/Ctrl + P`) or the ribbon me
 
 ### 🌐 Web Integration
 
-- **Web Search** - Search the web using Tavily or Brave API.
+- **Web Search** - Search the web using Tavily, Brave API, or a self-hosted SearXNG instance.
 - **News Search** - Get recent news on any topic.
+- **SearXNG Support** - Configure an instance URL in settings; the instance must enable JSON output with `json` in `search.formats`.
 
 ### 🎭 Personas
 

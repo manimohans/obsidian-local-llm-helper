@@ -227,6 +227,7 @@ export class WorkflowModal extends Modal {
 		thinkingEl.createSpan({ text: `Drafting ${recipe.title.toLowerCase()} from ${scopeLabel}` });
 		this.appendThinkingDots(thinkingEl);
 		this.scrollToBottom();
+		new Notice(`Running workflow: ${recipe.title}`);
 
 		try {
 			const contextSnapshot = getCurrentOrFallbackChatContext(this.app);
@@ -244,6 +245,9 @@ export class WorkflowModal extends Modal {
 					scrollToBottom: () => this.scrollToBottom(),
 				},
 			);
+			new Notice(response.actions.length > 0
+				? `${recipe.title} ready for approval.`
+				: `${recipe.title} finished with no writable actions.`);
 			this.scrollToBottom();
 		} catch (error) {
 			thinkingEl.remove();
@@ -251,6 +255,8 @@ export class WorkflowModal extends Modal {
 			errorMsg.createSpan({
 				text: error instanceof Error ? error.message : "Workflow failed.",
 			});
+			console.error("Workflow failed:", error);
+			new Notice(error instanceof Error ? error.message : "Workflow failed.");
 			this.scrollToBottom();
 		}
 	}

@@ -3,6 +3,18 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.4",
+		date: "2026-05",
+		changes: `
+**New Features**
+- Added SearXNG as a self-hosted search provider for web and news search.
+- Added a SearXNG instance URL setting and clear errors when JSON output is disabled or unavailable.
+
+**UX Improvements**
+- Added more Obsidian notices for command failures, completed chat/workflow responses, related-note refresh failures, and approval-gated vault actions.
+`,
+	},
+	{
 		version: "2.4.3",
 		date: "2026-05",
 		changes: `

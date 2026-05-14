@@ -20,12 +20,14 @@ import { UpdateNoticeModal } from "./src/updateNoticeModal";
 import { RAGManager, RAGQueryScope } from './src/rag';
 import { BacklinkGenerator } from './src/backlinkGenerator';
 import { RAGChatModal } from './src/ragChatModal';
+import { ChatView, CHAT_VIEW_TYPE, type ChatViewOpenOptions } from './src/chatView';
 import { PromptPickerModal } from './src/promptPickerModal';
 import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict, modifyPrompt } from './src/personas';
 import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customPrompts';
 import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
 import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
-import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext, getCurrentOrFallbackChatContext } from './src/vaultAgent';
+import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext } from './src/vaultAgent';
+import { submitGeneralChat, updateConversationHistory as recordConversationHistory } from './src/chatSession';
 import { WorkflowModal } from './src/workflowModal';
 import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
 import type { WorkflowDefaults } from './src/workflowTypes';
@@ -167,6 +169,10 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.registerView(
 			RELATED_NOTES_VIEW_TYPE,
 			(leaf: WorkspaceLeaf) => new RelatedNotesView(leaf, this)
+		);
+		this.registerView(
+			CHAT_VIEW_TYPE,
+			(leaf: WorkspaceLeaf) => new ChatView(leaf, this)
 		);
 
 		// Add command for RAG Backlinks
@@ -394,8 +400,24 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "llm-chat",
 			name: "Chat: General",
 			callback: () => {
+				void this.openChatView({ mode: "general" });
+			},
+		});
+
+		this.addCommand({
+			id: "llm-chat-popup",
+			name: "Chat: General (popup)",
+			callback: () => {
 				const chatModal = new LLMChatModal(this.app, this);
 				chatModal.open();
+			},
+		});
+
+		this.addCommand({
+			id: "rag-chat-popup",
+			name: "Chat: Notes (RAG popup)",
+			callback: () => {
+				new RAGChatModal(this.app, this.settings, this.ragManager, this).open();
 			},
 		});
 
@@ -443,7 +465,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Chat")
 					.setIcon("messages-square")
 					.onClick(() => {
-						new LLMChatModal(this.app, this).open();
+						void this.openChatView({ mode: "general" });
 					})
 			);
 
@@ -725,7 +747,17 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	private getActiveMarkdownFile(): TFile | null {
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		return view?.file || null;
+		if (view?.file) {
+			this.lastMarkdownLeaf = view.leaf;
+			return view.file;
+		}
+
+		const lastView = this.lastMarkdownLeaf?.view;
+		if (lastView instanceof MarkdownView && lastView.file) {
+			return lastView.file;
+		}
+
+		return this.app.workspace.getActiveFile();
 	}
 
 	private getFolderPath(file: TFile): string {
@@ -734,8 +766,34 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	public openRAGChat(initialScope?: RAGQueryScope) {
-		new Notice("Make sure you have indexed your notes before using this feature.");
-		new RAGChatModal(this.app, this.settings, this.ragManager, this, initialScope).open();
+		void this.openChatView({ mode: "notes", initialScope });
+	}
+
+	async openChatView(options: ChatViewOpenOptions = {}): Promise<void> {
+		const initialContext = getActiveChatContext(this.app);
+		const existingLeaf = this.app.workspace.getLeavesOfType(CHAT_VIEW_TYPE)[0];
+		const leaf = existingLeaf || this.app.workspace.getRightLeaf(false);
+		if (!leaf) {
+			new Notice("Could not open LLM Chat view.");
+			return;
+		}
+
+		if (!existingLeaf) {
+			await leaf.setViewState({
+				type: CHAT_VIEW_TYPE,
+				active: true,
+			});
+		}
+		await this.app.workspace.revealLeaf(leaf);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
+
+		if (leaf.view instanceof ChatView) {
+			leaf.view.applyOpenOptions({
+				initialContext,
+				focusInput: true,
+				...options,
+			});
+		}
 	}
 
 	async activateRelatedNotesView(): Promise<void> {
@@ -799,7 +857,9 @@ export default class OLocalLLMPlugin extends Plugin {
 			return;
 		}
 
-		await this.app.workspace.getLeaf(true).openFile(file);
+		const leaf = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit) || this.app.workspace.getLeaf(true);
+		await leaf.openFile(file);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 	}
 
 	onunload() {
@@ -2445,24 +2505,19 @@ async function processChatInput(
 	scrollToBottom(chatContainer);
 
 	try {
-		const contextSnapshot = getCurrentOrFallbackChatContext(plugin.app, initialChatContext);
-		const response = await plugin.vaultAgent.submitChat({
-			message: text,
-			conversationHistory,
-			context: contextSnapshot,
-		});
+		const result = await submitGeneralChat(plugin, text, conversationHistory, initialChatContext);
 
 		hideThinkingIndicator(chatHistoryEl);
 		const renderedMessage = plugin.vaultAgent.renderAgentResponse(
 			chatHistoryEl,
-			response,
-			contextSnapshot,
+			result.response,
+			result.context,
 			{
 				messageClassName: "llmChatMessageStyleAI",
 				scrollToBottom: () => scrollToBottom(chatContainer),
 			},
 		);
-		updateConversationHistory(text, renderedMessage, conversationHistory, plugin.settings.maxConvHistory);
+		recordConversationHistory(conversationHistory, text, renderedMessage, plugin.settings.maxConvHistory);
 		new Notice("Chat response ready.");
 		scrollToBottom(chatContainer);
 	} catch (error) {

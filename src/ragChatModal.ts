@@ -1,14 +1,10 @@
-import { App, Modal, TextComponent, ButtonComponent, setIcon, TFile, Notice } from "obsidian";
+import { App, Modal, TextComponent, ButtonComponent, setIcon, Notice } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { OLocalLLMSettings } from "../main";
 import { RAGManager, RAGQueryScope } from "./rag";
-import { type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext, getCurrentOrFallbackChatContext } from "./vaultAgent";
+import { type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext } from "./vaultAgent";
 import { RAGScopeSelector, describeRAGScope } from "./ragScope";
-
-interface ParsedScopeOverride {
-	scope?: RAGQueryScope;
-	cleanQuery: string;
-}
+import { appendThinkingDots, parseRAGScopeOverride, submitNotesChat, updateConversationHistory } from "./chatSession";
 
 export class RAGChatModal extends Modal {
 	private result: string = "";
@@ -134,10 +130,11 @@ export class RAGChatModal extends Modal {
 
 		this.hideWelcomeMessage();
 
-		const parsedOverride = this.parseScopeOverride(this.result);
+		const parsedOverride = parseRAGScopeOverride(this.app, this.result);
 		const selectionScope = this.scopeSelector.getScope();
 		const scope = parsedOverride.scope || selectionScope;
 		const query = parsedOverride.cleanQuery;
+		const badgeText = describeRAGScope(scope);
 
 		const userMsg = this.chatHistoryEl.createDiv({ cls: "rag-chat-message rag-chat-message-user" });
 		userMsg.createSpan({ text: this.result });
@@ -147,36 +144,28 @@ export class RAGChatModal extends Modal {
 		this.updateSubmitButtonState();
 
 		const thinkingEl = this.chatHistoryEl.createDiv({ cls: "rag-chat-thinking" });
-		thinkingEl.createSpan({ text: `Searching ${describeRAGScope(scope)}` });
-		this.appendThinkingDots(thinkingEl);
+		thinkingEl.createSpan({ text: `Searching ${badgeText}` });
+		appendThinkingDots(thinkingEl);
 		this.scrollToBottom();
 
 		try {
-			const contextSnapshot = getCurrentOrFallbackChatContext(this.app, this.initialChatContext);
-			const ragContext = await this.ragManager.getRelevantContext(query, scope);
-			const response = await this.plugin.vaultAgent.submitChat({
-				message: query,
-				conversationHistory: this.conversationHistory,
-				context: contextSnapshot,
-				ragContext: ragContext.context,
-				ragSources: ragContext.sources,
-			});
+			const result = await submitNotesChat(this.plugin, query, this.conversationHistory, this.initialChatContext, scope, badgeText);
 
 			thinkingEl.remove();
 
 			const renderedMessage = this.plugin.vaultAgent.renderAgentResponse(
 				this.chatHistoryEl,
-				response,
-				contextSnapshot,
+				result.response,
+				result.context,
 				{
 					messageClassName: "rag-chat-message rag-chat-message-ai",
 					responseTextClassName: "rag-chat-response-text",
 					copyButtonClassName: "rag-chat-copy-btn",
-					badgeText: describeRAGScope(scope),
+					badgeText,
 					scrollToBottom: () => this.scrollToBottom(),
 				},
 			);
-			this.updateConversationHistory(query, renderedMessage);
+			updateConversationHistory(this.conversationHistory, query, renderedMessage, this.pluginSettings.maxConvHistory);
 			new Notice("Notes chat response ready.");
 
 			this.scrollToBottom();
@@ -192,102 +181,6 @@ export class RAGChatModal extends Modal {
 			new Notice(error instanceof Error ? error.message : "Notes chat failed. Make sure notes are indexed.");
 			this.scrollToBottom();
 		}
-	}
-
-	private updateConversationHistory(prompt: string, response: string) {
-		this.conversationHistory.push({ prompt, response });
-		if (this.conversationHistory.length > this.pluginSettings.maxConvHistory) {
-			this.conversationHistory.shift();
-		}
-	}
-
-	private parseScopeOverride(rawQuery: string): ParsedScopeOverride {
-		let cleanQuery = rawQuery;
-		const notePaths = new Set<string>();
-		const folderMatches: string[] = [];
-		const tagMatches = new Set<string>();
-
-		cleanQuery = cleanQuery.replace(/@\[\[([^\]]+)\]\]/g, (_match, noteRef: string) => {
-			const normalizedRef = noteRef.split("|")[0].trim();
-			const file = this.resolveNoteReference(normalizedRef);
-			if (file) {
-				notePaths.add(file.path);
-			}
-			return "";
-		});
-
-		cleanQuery = cleanQuery.replace(/@folder\(([^)]+)\)/gi, (_match, folderRef: string) => {
-			const normalizedFolder = folderRef.trim().replace(/^\/+|\/+$/g, "");
-			if (normalizedFolder || folderRef.trim() === "/") {
-				folderMatches.push(normalizedFolder);
-			}
-			return "";
-		});
-
-		cleanQuery = cleanQuery.replace(/(^|\s)#([A-Za-z0-9/_-]+)/g, (_match, leadingSpace: string, tagRef: string) => {
-			tagMatches.add(tagRef.toLowerCase());
-			return leadingSpace;
-		});
-
-		const compactQuery = cleanQuery.replace(/\s{2,}/g, " ").trim();
-		const finalQuery = compactQuery || "Summarize the scoped notes.";
-
-		if (notePaths.size > 0) {
-			return {
-				scope: {
-					mode: "paths",
-					paths: Array.from(notePaths),
-					label: notePaths.size === 1 ? Array.from(notePaths)[0] : `${notePaths.size} mentioned notes`
-				},
-				cleanQuery: finalQuery
-			};
-		}
-
-		if (folderMatches.length > 0) {
-			const folder = folderMatches[folderMatches.length - 1];
-			return {
-				scope: {
-					mode: "folder",
-					folder,
-					label: folder || "Vault root"
-				},
-				cleanQuery: finalQuery
-			};
-		}
-
-		if (tagMatches.size > 0) {
-			return {
-				scope: {
-					mode: "tags",
-					tags: Array.from(tagMatches),
-					label: Array.from(tagMatches).map(tag => `#${tag}`).join(", ")
-				},
-				cleanQuery: finalQuery
-			};
-		}
-
-		return { cleanQuery: finalQuery };
-	}
-
-	private resolveNoteReference(reference: string): TFile | null {
-		const exact = this.app.metadataCache.getFirstLinkpathDest(reference, "");
-		if (exact) {
-			return exact;
-		}
-
-		const normalizedReference = reference.replace(/\.md$/i, "").toLowerCase();
-		return this.app.vault.getMarkdownFiles().find(file =>
-			file.path.toLowerCase() === normalizedReference ||
-			file.path.toLowerCase() === `${normalizedReference}.md` ||
-			file.basename.toLowerCase() === normalizedReference
-		) || null;
-	}
-
-	private appendThinkingDots(containerEl: HTMLElement) {
-		const dots = containerEl.createSpan({ cls: "dots" });
-		dots.createSpan({ cls: "dot" });
-		dots.createSpan({ cls: "dot" });
-		dots.createSpan({ cls: "dot" });
 	}
 
 	private clearConversation() {

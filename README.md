@@ -131,11 +131,13 @@ All commands are available via Command Palette (`Cmd/Ctrl + P`) or the ribbon me
 - Remembers recent exchanges for context.
 - Supports all configured personas.
 - Can propose approval-gated Vault Actions when enabled.
+- Opens in a docked sidebar so your notes stay visible while you chat.
 
 **RAG Chat** for note-grounded answers:
 - Searches your indexed notes semantically.
-- Shows clickable sources.
+- Shows clickable sources that open in the main editor.
 - Supports vault, note, folder, tag, and selected-note scopes.
+- Uses the same sidebar as general chat; popup variants remain available from the command palette.
 
 ### 🌐 Web Integration
 
@@ -244,7 +246,7 @@ Go to Settings → Local LLM Helper and choose your provider:
 
 1. Command Palette → "Notes: Index notes for RAG"
 2. Wait for indexing to complete
-3. Command Palette → "Chat: RAG Chat" to chat with your notes
+3. Command Palette → "Chat: Notes (RAG)" to chat with your notes in the sidebar
 4. Command Palette → "Notes: Open related notes" to keep nearby notes visible while writing
 
 ### 4. Run a Workflow
@@ -260,6 +262,13 @@ Notes:
 - Workflow approvals still work even if the chat-only `Vault Actions` toggle is off.
 
 ## Changelog
+
+### v2.4.5
+
+**Dockable Chat Sidebar**
+- Moved general and notes chat into a right-sidebar workspace view so notes stay visible while chatting.
+- Added a multiline composer with target context, stop state, inline readiness/error banners, and a verification reminder.
+- Improved source citations with note titles and paths that open in the main editor.
 
 ### v2.4.2
 

@@ -491,9 +491,17 @@ export class VaultAgentService {
 			const item = sourcesList.createDiv({ cls: "rag-chat-source-item" });
 			const icon = item.createSpan({ cls: "rag-chat-source-icon" });
 			setIcon(icon, "file-text");
-			item.createSpan({ text: source, cls: "rag-chat-source-name" });
+			const sourceText = item.createDiv({ cls: "rag-chat-source-text" });
+			const file = this.app.vault.getAbstractFileByPath(source);
+			sourceText.createSpan({
+				text: file instanceof TFile ? file.basename : source,
+				cls: "rag-chat-source-name",
+			});
+			if (file instanceof TFile) {
+				sourceText.createSpan({ text: source, cls: "rag-chat-source-path" });
+			}
 			item.addEventListener("click", () => {
-				void this.app.workspace.openLinkText(source, "", false);
+				void this.plugin.openFileByPath(source);
 			});
 		}
 	}
@@ -685,8 +693,21 @@ export class VaultAgentService {
 
 export function getActiveChatContext(app: App): ChatEnvironmentContext {
 	const view = app.workspace.getActiveViewOfType(MarkdownView);
-	if (!view || view.getMode() !== "source" || !("editor" in view)) {
-		return {};
+	if (!view || !view.file) {
+		const file = app.workspace.getActiveFile();
+		return file
+			? {
+				activeFilePath: file.path,
+				activeNoteTitle: file.basename,
+			}
+			: {};
+	}
+
+	if (view.getMode() !== "source" || !("editor" in view)) {
+		return {
+			activeFilePath: view.file.path,
+			activeNoteTitle: view.file.basename,
+		};
 	}
 
 	const selectedText = view.editor.getSelection() || undefined;
@@ -703,7 +724,7 @@ export function getCurrentOrFallbackChatContext(app: App, fallback?: ChatEnviron
 	if (current.selectedText) {
 		return current;
 	}
-	if (fallback?.selectedText) {
+	if (fallback?.selectedText && (!current.activeFilePath || current.activeFilePath === fallback.selectionFilePath)) {
 		return fallback;
 	}
 	if (current.activeFilePath) {

@@ -735,6 +735,7 @@
 .rag-chat-source-icon {
     display: flex;
     color: var(--text-muted);
+    flex-shrink: 0;
 }
 
 .rag-chat-source-icon svg {
@@ -745,6 +746,21 @@
 .rag-chat-source-name {
     font-size: 12px;
     color: var(--text-accent);
+}
+
+.rag-chat-source-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.rag-chat-source-path {
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .vault-action-list {
@@ -922,6 +938,264 @@
 .rag-chat-submit-disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.llm-helper-chat-view .view-content {
+    padding: 0;
+}
+
+.llm-helper-chat-view .view-content,
+.llm-helper-chat-view .llm-helper-chat-container {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.llm-helper-chat-view .view-content {
+    height: 100%;
+}
+
+.llm-helper-chat-header,
+.llm-helper-chat-title-wrap,
+.llm-helper-chat-mode-toggle,
+.llm-helper-chat-input-row {
+    display: flex;
+}
+
+.llm-helper-chat-header {
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 14px 14px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+}
+
+.llm-helper-chat-title-wrap {
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+}
+
+.llm-helper-chat-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background-color: var(--background-secondary);
+    color: var(--interactive-accent);
+    flex-shrink: 0;
+}
+
+.llm-helper-chat-icon svg {
+    width: 17px;
+    height: 17px;
+}
+
+.llm-helper-chat-title-text {
+    min-width: 0;
+}
+
+.llm-helper-chat-title-text h2 {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.25;
+}
+
+.llm-helper-chat-status {
+    margin-top: 3px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.llm-helper-chat-header-action {
+    flex-shrink: 0;
+}
+
+.llm-helper-chat-mode-toggle {
+    gap: 4px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-secondary);
+}
+
+.llm-helper-chat-mode-toggle button {
+    flex: 1;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background-color: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.llm-helper-chat-mode-toggle button.is-active {
+    border-color: var(--background-modifier-border);
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+}
+
+.llm-helper-chat-scope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+}
+
+.llm-helper-chat-scope.is-hidden {
+    display: none;
+}
+
+.llm-helper-chat-scope .rag-chat-scope-label {
+    font-size: 11px;
+}
+
+.llm-helper-chat-scope .rag-chat-scope-select {
+    max-width: 100%;
+}
+
+.llm-helper-chat-scope .rag-chat-scope-meta {
+    min-width: 160px;
+}
+
+.llm-helper-chat-container {
+    flex: 1;
+    overflow: hidden;
+}
+
+.llm-helper-chat-history {
+    flex: 1;
+    min-height: 0;
+    padding: 14px 12px;
+}
+
+.llm-helper-chat-history .rag-chat-message {
+    max-width: 94%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 13px;
+}
+
+.llm-helper-chat-history .rag-chat-message-user {
+    border-bottom-right-radius: 4px;
+}
+
+.llm-helper-chat-history .rag-chat-message-ai {
+    border-bottom-left-radius: 4px;
+}
+
+.llm-helper-chat-empty {
+    margin: auto 0;
+    padding: 16px;
+    border: 1px dashed var(--background-modifier-border);
+    border-radius: 8px;
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.llm-helper-chat-input-container {
+    padding: 10px 12px 34px;
+    border-top: 1px solid var(--background-modifier-border);
+    background-color: var(--background-primary);
+    box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.08);
+}
+
+.llm-helper-chat-input-row {
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.llm-helper-chat-input {
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 38px;
+    max-height: 140px;
+    line-height: 1.4;
+    resize: none;
+    overflow-y: auto;
+    border-radius: 12px;
+    padding: 9px 12px;
+}
+
+.llm-helper-chat-composer-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+}
+
+.llm-helper-chat-target-chip {
+    min-width: 0;
+    max-width: 100%;
+    padding: 3px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.llm-helper-chat-status-banner {
+    margin: 0 0 7px;
+    padding: 7px 9px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.llm-helper-chat-status-banner.is-hidden {
+    display: none;
+}
+
+.llm-helper-chat-status-banner.is-warning {
+    background-color: rgba(var(--color-yellow-rgb), 0.12);
+    color: var(--text-warning);
+}
+
+.llm-helper-chat-status-banner.is-error {
+    background-color: rgba(var(--color-red-rgb), 0.12);
+    color: var(--text-error);
+}
+
+.llm-helper-chat-status-banner.is-info {
+    background-color: var(--background-secondary);
+    color: var(--text-muted);
+}
+
+.llm-helper-chat-disclaimer {
+    margin-top: 6px;
+    padding: 0 4px;
+    color: var(--text-faint);
+    font-size: 11px;
+    line-height: 1.3;
+    text-align: center;
+}
+
+.llm-helper-chat-submit {
+    flex-shrink: 0;
+    min-height: 38px;
+}
+
+.llm-helper-chat-submit.is-generating {
+    background-color: var(--background-modifier-error);
+    color: var(--text-on-accent);
 }
 
 .llm-helper-related-notes-view .view-content {

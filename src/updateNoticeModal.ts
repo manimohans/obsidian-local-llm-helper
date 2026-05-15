@@ -3,6 +3,20 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.6",
+		date: "2026-05",
+		changes: `
+**RAG Embeddings**
+- Added optional Embedding server URL and Embedding API key settings so RAG indexing can use a separate OpenAI-compatible embeddings server.
+- Chat and embedding model browsing now query the correct configured server.
+- Saved indexes now track the effective embedding server and model, while existing indexes remain loadable.
+
+**Compatibility**
+- Leaving embedding settings blank keeps the current single-server setup.
+- Setting the embedding API key to \`not-needed\` sends no Authorization header for embedding requests.
+`,
+	},
+	{
 		version: "2.4.4",
 		date: "2026-05",
 		changes: `

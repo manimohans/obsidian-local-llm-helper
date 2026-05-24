@@ -76,6 +76,9 @@ export interface OLocalLLMSettings {
 	ragTopK: number;
 	autoIndexIntervalMinutes: number;
 	autoNotice: boolean;
+	indexPdfAttachments: boolean;
+	ocrImageAttachments: boolean;
+	ocrScannedPdfAttachments: boolean;
 	enableVaultActions: boolean;
 	showAgentDebug: boolean;
 	workflowDefaults: WorkflowDefaults;
@@ -111,6 +114,9 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	ragTopK: 5,
 	autoIndexIntervalMinutes: 0,   // 0 = disabled
 	autoNotice: false,
+	indexPdfAttachments: true,
+	ocrImageAttachments: false,
+	ocrScannedPdfAttachments: false,
 	enableVaultActions: false,
 	showAgentDebug: false,
 	workflowDefaults: createDefaultWorkflowDefaults(),
@@ -869,7 +875,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 	}
 
-	onunload() {
+	async onunload() {
 		if (this.relatedNotesRefreshTimer !== null) {
 			window.clearTimeout(this.relatedNotesRefreshTimer);
 			this.relatedNotesRefreshTimer = null;
@@ -877,6 +883,9 @@ export default class OLocalLLMPlugin extends Plugin {
 		if (this.autoIndexTimer !== undefined) {
 			window.clearTimeout(this.autoIndexTimer);
 			this.autoIndexTimer = undefined;
+		}
+		if (this.ragManager) {
+			await this.ragManager.dispose();
 		}
 
 	}
@@ -1155,22 +1164,24 @@ export default class OLocalLLMPlugin extends Plugin {
 			const stats = await this.ragManager.getStorageStats();
 			console.log('💾 RAG Storage Stats:');
 			console.log('  Total Embeddings:', stats.totalEmbeddings);
-			console.log('  Indexed Files:', stats.indexedFiles);
+			console.log('  Indexed Sources:', stats.indexedFiles);
+			console.log('  Markdown Sources:', stats.sourceCounts.markdown);
+			console.log('  PDF Sources:', stats.sourceCounts.pdf);
+			console.log('  Image Sources:', stats.sourceCounts.image);
 			console.log('  Last Indexed:', stats.lastIndexed);
 			console.log('  Storage Used:', stats.storageUsed);
 			console.log('  Current Indexed Count:', this.ragManager.getIndexedFilesCount());
 			
-			// Show user-friendly notice
-			new Notice(`RAG Diagnostics: ${stats.totalEmbeddings} embeddings, ${stats.indexedFiles} files. Check console for details.`);
+			new Notice(`RAG Diagnostics: ${stats.totalEmbeddings} embeddings, ${stats.indexedFiles} sources. Check console for details.`);
 		} catch (error) {
 			console.error('❌ Error getting storage stats:', error);
 			new Notice('Error getting storage stats. Check console for details.');
 		}
 		
 		// File system diagnostics
-		const totalMdFiles = this.app.vault.getMarkdownFiles().length;
+		const totalFiles = this.app.vault.getFiles().length;
 		console.log('📁 Vault Stats:');
-		console.log('  Total Markdown Files:', totalMdFiles);
+		console.log('  Total Files:', totalFiles);
 		console.log('  Plugin Settings Path:', `${this.manifest.dir}/data.json`);
 		console.log('  Embeddings Storage Path:', `${this.manifest.dir}/embeddings.json`);
 		
@@ -1181,7 +1192,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		try {
 			const stats = await this.ragManager.getStorageStats();
 			if (stats.totalEmbeddings > 0) {
-				new Notice(`📚 Loaded ${stats.totalEmbeddings} embeddings from ${stats.indexedFiles} files (${stats.storageUsed})`);
+				new Notice(`📚 Loaded ${stats.totalEmbeddings} embeddings from ${stats.indexedFiles} sources (${stats.storageUsed})`);
 			} else {
 				new Notice('📝 No previous embeddings found - ready to index notes');
 			}
@@ -1892,8 +1903,44 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Index notes")
-			.setDesc("Build searchable index of all notes in vault")
+			.setName("Index PDF attachments")
+			.setDesc("Include PDF files in the searchable index using built-in text extraction.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.indexPdfAttachments)
+					.onChange(async (value) => {
+						this.plugin.settings.indexPdfAttachments = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("OCR image attachments")
+			.setDesc("Use local OCR to index supported image attachments like PNG, JPG, WebP, GIF, and BMP.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.ocrImageAttachments)
+					.onChange(async (value) => {
+						this.plugin.settings.ocrImageAttachments = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("OCR scanned PDFs")
+			.setDesc("Run local OCR on PDF pages that do not contain extractable text.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.ocrScannedPdfAttachments)
+					.onChange(async (value) => {
+						this.plugin.settings.ocrScannedPdfAttachments = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Index sources")
+			.setDesc("Build a searchable index of notes and supported attachments in your vault")
 			.addButton(button => button
 				.setButtonText("Start indexing")
 				.onClick(async () => {
@@ -1906,7 +1953,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						cls: "indexing-counter"
 					});
 
-					const totalFiles = this.app.vault.getMarkdownFiles().length;
+					const totalFiles = this.plugin.ragManager.getEligibleSourceCount();
 					let processedFiles = 0;
 
 					try {
@@ -1915,7 +1962,7 @@ class OLLMSettingTab extends PluginSettingTab {
 								this.indexingProgressBar.value = progress * 100;
 							}
 							processedFiles = Math.floor(progress * totalFiles);
-							counterEl.textContent = `   Processing: ${processedFiles}/${totalFiles}`;
+							counterEl.textContent = `   Processing sources: ${processedFiles}/${totalFiles}`;
 							counterEl.addClass("indexing-counter-small");
 						});
 						new Notice("Indexing complete!");
@@ -1934,8 +1981,8 @@ class OLLMSettingTab extends PluginSettingTab {
 				}));
 
 		this.indexedFilesCountSetting = new Setting(containerEl)
-			.setName("Indexed files")
-			.setDesc("Number of files in current index")
+			.setName("Indexed sources")
+			.setDesc("Number of notes and attachments in the current index")
 			.addText(text => text
 				.setValue("Loading...")
 				.setDisabled(true));

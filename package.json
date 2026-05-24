@@ -5,6 +5,8 @@
   "main": "main.js",
   "dependencies": {
     "obsidian": "^1.5.7-1",
+    "pdfjs-dist": "^5.7.284",
+    "tesseract.js": "^7.0.0",
     "tslib": "^2.4.0"
   },
   "scripts": {

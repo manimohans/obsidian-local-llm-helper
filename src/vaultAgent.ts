@@ -2,6 +2,7 @@ import { App, MarkdownView, Notice, TFile, requestUrl, setIcon } from "obsidian"
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type OLocalLLMPlugin from "../main";
 import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
+import type { SourceReference } from "./rag";
 
 export interface ConversationEntry {
 	prompt: string;
@@ -55,7 +56,7 @@ export interface AgentResponse {
 	rawActionJson?: string;
 	actions: PendingAction[];
 	parseError?: string;
-	sources?: string[];
+	sources?: SourceReference[];
 }
 
 interface AgentExecutionResult {
@@ -68,7 +69,7 @@ interface SubmitChatRequest {
 	conversationHistory: ConversationEntry[];
 	context: ChatEnvironmentContext;
 	ragContext?: string;
-	ragSources?: string[];
+	ragSources?: SourceReference[];
 }
 
 interface RenderAgentResponseOptions {
@@ -187,7 +188,7 @@ export class VaultAgentService {
 		return conversationHistory.slice(-maxHistory);
 	}
 
-	private async parseAgentResponse(rawResponse: string, context: ChatEnvironmentContext, ragSources?: string[]): Promise<AgentResponse> {
+	private async parseAgentResponse(rawResponse: string, context: ChatEnvironmentContext, ragSources?: SourceReference[]): Promise<AgentResponse> {
 		const blockMatch = rawResponse.match(ACTION_BLOCK_PATTERN);
 		const rawActionJson = blockMatch?.[1]?.trim();
 		const messageOutsideBlock = blockMatch
@@ -479,25 +480,25 @@ export class VaultAgentService {
 		});
 	}
 
-	private renderSources(container: HTMLElement, sources: string[]) {
+	private renderSources(container: HTMLElement, sources: SourceReference[]) {
 		const sourcesEl = container.createDiv({ cls: "rag-chat-sources" });
 		sourcesEl.createEl("span", { text: "Sources:", cls: "rag-chat-sources-label" });
 		const sourcesList = sourcesEl.createDiv({ cls: "rag-chat-sources-list" });
 		for (const source of sources) {
 			const item = sourcesList.createDiv({ cls: "rag-chat-source-item" });
 			const icon = item.createSpan({ cls: "rag-chat-source-icon" });
-			setIcon(icon, "file-text");
+			setIcon(icon, source.sourceType === "image" ? "image" : "file-text");
 			const sourceText = item.createDiv({ cls: "rag-chat-source-text" });
-			const file = this.app.vault.getAbstractFileByPath(source);
+			const file = this.app.vault.getAbstractFileByPath(source.path);
 			sourceText.createSpan({
-				text: file instanceof TFile ? file.basename : source,
+				text: source.label,
 				cls: "rag-chat-source-name",
 			});
 			if (file instanceof TFile) {
-				sourceText.createSpan({ text: source, cls: "rag-chat-source-path" });
+				sourceText.createSpan({ text: source.path, cls: "rag-chat-source-path" });
 			}
 			item.addEventListener("click", () => {
-				void this.plugin.openFileByPath(source);
+				void this.plugin.openFileByPath(source.path);
 			});
 		}
 	}

@@ -2,7 +2,7 @@ import { App, requestUrl } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { AgentResponse, ChatEnvironmentContext, AgentAction } from "./vaultAgent";
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
-import type { RAGQueryScope } from "./rag";
+import type { RAGQueryScope, SourceReference } from "./rag";
 import type { WorkflowDefaults, WorkflowRecipeDefaults, WorkflowRecipeId } from "./workflowTypes";
 import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
 
@@ -188,8 +188,8 @@ export class WorkflowRunnerService {
 		return rawResponse.trim();
 	}
 
-	private buildWorkflowPrompt(recipe: WorkflowRecipeDefinition, config: WorkflowRunConfig, noteContext: string, sources: string[]): string {
-		const sourceList = sources.length > 0 ? sources.join("\n- ") : "No individual source names available.";
+	private buildWorkflowPrompt(recipe: WorkflowRecipeDefinition, config: WorkflowRunConfig, noteContext: string, sources: SourceReference[]): string {
+		const sourceList = sources.length > 0 ? sources.map(source => source.label).join("\n- ") : "No individual source names available.";
 		const scopeLabel = config.scope.label || config.scope.mode;
 
 		if (recipe.id === "weekly-review") {

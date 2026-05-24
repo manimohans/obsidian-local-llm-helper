@@ -88,6 +88,7 @@ Index your vault for semantic search and AI-powered Q&A:
 - **Smart chunking** - Documents split with overlap for better context.
 - **Incremental indexing** - Only re-indexes changed files.
 - **Content preprocessing** - Strips frontmatter and cleans markdown.
+- **Attachment-aware retrieval** - Index PDF attachments by default, with opt-in local OCR for images and scanned PDFs.
 - **Multiple embedding providers** - Works with OpenAI-compatible embedding endpoints.
 - **Configurable retrieval** - Tune how many chunks are sent to the model.
 
@@ -135,7 +136,7 @@ All commands are available via Command Palette (`Cmd/Ctrl + P`) or the ribbon me
 
 **RAG Chat** for note-grounded answers:
 - Searches your indexed notes semantically.
-- Shows clickable sources that open in the main editor.
+- Shows clickable sources that open notes and indexed attachments.
 - Supports vault, note, folder, tag, and selected-note scopes.
 - Uses the same sidebar as general chat; popup variants remain available from the command palette.
 
@@ -258,6 +259,7 @@ Go to Settings → Local LLM Helper and choose your provider:
 
 Notes:
 - Workflows use the same indexed-note context as RAG chat, so run `Notes: Index notes for RAG` first if your vault changed.
+- PDF attachments are indexed by default; image OCR and scanned-PDF OCR can be enabled in Settings → Notes Index (RAG).
 - `Meeting notes to tasks` and `Project status summary` require a target note to append into.
 - Workflow approvals still work even if the chat-only `Vault Actions` toggle is off.
 

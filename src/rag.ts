@@ -1,6 +1,11 @@
-import { TFile, Vault, Plugin, requestUrl } from 'obsidian';
-import { OpenAIEmbeddings } from './openAIEmbeddings';
-import type { OLocalLLMSettings } from '../main';
+import { TFile, Vault, Plugin, requestUrl } from "obsidian";
+import { OpenAIEmbeddings } from "./openAIEmbeddings";
+import type { OLocalLLMSettings } from "../main";
+import {
+	AttachmentExtractor,
+	type ExtractionMethod,
+	type IndexedSourceType,
+} from "./attachmentExtractor";
 import {
 	buildOpenAIHeaders,
 	getChatApiKey,
@@ -8,7 +13,7 @@ import {
 	getEffectiveEmbeddingApiKey,
 	getEffectiveEmbeddingBaseUrl,
 	getEffectiveEmbeddingServerAddress,
-} from './providerSettings';
+} from "./providerSettings";
 
 interface IndexedDocument {
 	pageContent: string;
@@ -63,12 +68,16 @@ interface EmbeddingMetadata {
 	totalChunks: number;
 	indexed: number;
 	fileModified: number;
+	sourceType: IndexedSourceType;
+	extractionMethod: ExtractionMethod;
+	pageNumber?: number;
 }
 
 interface FileIndex {
 	path: string;
 	modified: number;
 	chunks: number;
+	sourceType: IndexedSourceType;
 }
 
 interface EmbeddingData {
@@ -82,12 +91,18 @@ interface EmbeddingData {
 		model: string;
 		serverAddress?: string;
 		embeddingServerAddress?: string;
+		indexPdfAttachments?: boolean;
+		ocrImageAttachments?: boolean;
+		ocrScannedPdfAttachments?: boolean;
 	};
 }
 
 interface EmbeddingConfigSnapshot {
 	model: string;
 	serverAddress: string;
+	indexPdfAttachments: boolean;
+	ocrImageAttachments: boolean;
+	ocrScannedPdfAttachments: boolean;
 }
 
 export type RAGScopeMode = 'vault' | 'paths' | 'folder' | 'tags';
@@ -105,6 +120,24 @@ export interface RelatedNoteResult {
 	fileName: string;
 	preview: string;
 	score: number;
+	sourceType: IndexedSourceType;
+	pageNumber?: number;
+	sourceLabel: string;
+}
+
+export interface SourceReference {
+	path: string;
+	label: string;
+	sourceType: IndexedSourceType;
+	pageNumber?: number;
+}
+
+export interface IndexStorageStats {
+	totalEmbeddings: number;
+	indexedFiles: number;
+	lastIndexed: string;
+	storageUsed: string;
+	sourceCounts: Record<IndexedSourceType, number>;
 }
 
 // Chunking configuration
@@ -120,29 +153,31 @@ export class RAGManager {
 	private isLoaded: boolean = false;
 	private cachedEmbeddings: Map<string, StoredEmbedding[]> = new Map();
 	private embeddingConfig: EmbeddingConfigSnapshot;
+	private attachmentExtractor: AttachmentExtractor;
 
 	constructor(
 		private vault: Vault,
 		private settings: OLocalLLMSettings,
 		private plugin: Plugin
 	) {
-		this.provider = this.settings.providerType || 'ollama';
+		this.provider = this.settings.providerType || "ollama";
 		this.embeddingConfig = this.createEmbeddingConfig(this.settings);
 		this.embeddings = this.createEmbeddingsClient(this.settings);
 		this.vectorStore = new InMemoryVectorStore(this.embeddings);
+		this.attachmentExtractor = new AttachmentExtractor(this.vault, this.settings);
 	}
 
 	async initialize(): Promise<void> {
 		if (this.isLoaded) return;
 
-		console.log('🔄 RAGManager: Starting initialization...');
+		console.log("🔄 RAGManager: Starting initialization...");
 
 		try {
 			await this.loadEmbeddings();
 			this.isLoaded = true;
-			console.log('✅ RAGManager initialized');
+			console.log("✅ RAGManager initialized");
 		} catch (error) {
-			console.error('❌ Failed to load embeddings:', error);
+			console.error("❌ Failed to load embeddings:", error);
 			this.isLoaded = true;
 		}
 	}
@@ -151,20 +186,21 @@ export class RAGManager {
 		const nextEmbeddingConfig = this.createEmbeddingConfig(settings);
 		const modelChanged = nextEmbeddingConfig.model !== this.embeddingConfig.model;
 		const serverChanged = nextEmbeddingConfig.serverAddress !== this.embeddingConfig.serverAddress;
+		const attachmentSettingsChanged =
+			nextEmbeddingConfig.indexPdfAttachments !== this.embeddingConfig.indexPdfAttachments ||
+			nextEmbeddingConfig.ocrImageAttachments !== this.embeddingConfig.ocrImageAttachments ||
+			nextEmbeddingConfig.ocrScannedPdfAttachments !== this.embeddingConfig.ocrScannedPdfAttachments;
 
 		this.settings = settings;
-		this.provider = settings.providerType || 'ollama';
+		this.provider = settings.providerType || "ollama";
 		this.embeddingConfig = nextEmbeddingConfig;
+		this.attachmentExtractor.updateSettings(settings);
 
-		// Reinitialize embeddings client
 		this.embeddings = this.createEmbeddingsClient(settings);
-
-		// Update the vector store's embedder reference so new indexing uses the current model
 		this.vectorStore.setEmbedder(this.embeddings);
 
-		// Only warn if embedding-related settings changed
-		if (modelChanged || serverChanged) {
-			console.log('⚠️ RAGManager: Embedding settings changed. Re-index recommended for best results.');
+		if (modelChanged || serverChanged || attachmentSettingsChanged) {
+			console.log("⚠️ RAGManager: Index settings changed. Re-index recommended for best results.");
 		}
 	}
 
@@ -172,6 +208,9 @@ export class RAGManager {
 		return {
 			model: settings.embeddingModelName,
 			serverAddress: getEffectiveEmbeddingServerAddress(settings),
+			indexPdfAttachments: settings.indexPdfAttachments,
+			ocrImageAttachments: settings.ocrImageAttachments,
+			ocrScannedPdfAttachments: settings.ocrScannedPdfAttachments,
 		};
 	}
 
@@ -183,7 +222,7 @@ export class RAGManager {
 		);
 	}
 
-	async getRelevantContext(query: string, scope?: RAGQueryScope): Promise<{ context: string; sources: string[] }> {
+	async getRelevantContext(query: string, scope?: RAGQueryScope): Promise<{ context: string; sources: SourceReference[] }> {
 		const indexedCount = this.getIndexedFilesCount();
 		if (indexedCount === 0) {
 			throw new Error("No notes indexed. Please index your notes first in Settings → Notes Index.");
@@ -198,18 +237,18 @@ export class RAGManager {
 			throw new Error(`No indexed content matched the selected scope (${this.describeScope(resolvedScope)}).`);
 		}
 
-		const sources = [...new Set(docs.map(doc => doc.metadata.source))];
+		const sources = this.buildSourceReferences(docs);
 		const context = docs
 			.map((doc, index) => {
-				const source = doc.metadata.source || doc.metadata.fileName || `Note ${index + 1}`;
+				const source = this.getContextSourceLabel(doc.metadata, index);
 				return `[Source: ${source}]\n${doc.pageContent}`;
 			})
-			.join('\n\n---\n\n');
+			.join("\n\n---\n\n");
 
 		return { context, sources };
 	}
 
-	async getRAGResponse(query: string, scope?: RAGQueryScope): Promise<{ response: string, sources: string[] }> {
+	async getRAGResponse(query: string, scope?: RAGQueryScope): Promise<{ response: string; sources: SourceReference[] }> {
 		const indexedCount = this.getIndexedFilesCount();
 		if (indexedCount === 0) {
 			throw new Error("No notes indexed. Please index your notes first in Settings → Notes Index.");
@@ -226,8 +265,8 @@ export class RAGManager {
 			}
 
 			const context = docs
-				.map(doc => `[${doc.metadata.fileName}]\n${doc.pageContent}`)
-				.join('\n\n---\n\n');
+				.map((doc, index) => `[${this.getContextSourceLabel(doc.metadata, index)}]\n${doc.pageContent}`)
+				.join("\n\n---\n\n");
 
 			const systemPrompt = `You are a helpful assistant answering questions based on the user's notes.
 Use the context below to answer the question. If the context doesn't contain relevant information, say so.
@@ -244,8 +283,8 @@ ${context}`;
 					model: this.settings.llmModel,
 					temperature: this.settings.temperature,
 					messages: [
-						{ role: 'system', content: systemPrompt },
-						{ role: 'user', content: query },
+						{ role: "system", content: systemPrompt },
+						{ role: "user", content: query },
 					],
 				}),
 				throw: false,
@@ -257,14 +296,14 @@ ${context}`;
 
 			const answer = response.json?.choices?.[0]?.message?.content;
 			if (typeof answer !== 'string') {
-				throw new Error('Chat completion returned an unexpected response shape.');
+				throw new Error("Chat completion returned an unexpected response shape.");
 			}
 
-			const sources = [...new Set(docs.map(doc => doc.metadata.source))];
+			const sources = this.buildSourceReferences(docs);
 
 			return {
 				response: answer,
-				sources: sources
+				sources,
 			};
 		} catch (error) {
 			console.error("RAG Error:", error);
@@ -279,13 +318,13 @@ ${context}`;
 		}
 
 		const queryEmbedding = await this.embeddings.embedQuery(query);
-			return entries
-				.map(entry => ({
-					score: this.cosineSimilarity(queryEmbedding, entry.vector),
-					doc: entry.doc
-				}))
-				.sort((a, b) => b.score - a.score)
-				.slice(0, this.settings.ragTopK)
+		return entries
+			.map(entry => ({
+				score: this.cosineSimilarity(queryEmbedding, entry.vector),
+				doc: entry.doc
+			}))
+			.sort((a, b) => b.score - a.score)
+			.slice(0, this.settings.ragTopK)
 			.map(item => item.doc);
 	}
 
@@ -303,12 +342,12 @@ ${context}`;
 		switch (scope.mode) {
 			case 'vault':
 				return true;
-			case 'paths':
+			case "paths":
 				return (scope.paths || []).includes(sourcePath);
-			case 'folder':
+			case "folder":
 				if (!scope.folder) return false;
 				return sourcePath === scope.folder || sourcePath.startsWith(`${scope.folder}/`);
-			case 'tags':
+			case "tags":
 				return this.fileHasAnyTag(sourcePath, scope.tags || []);
 			default:
 				return false;
@@ -425,25 +464,22 @@ ${context}`;
 
 		console.log("📚 Starting indexing process...");
 
-		const allFiles = this.vault.getMarkdownFiles();
+		const allFiles = this.getIndexableFiles();
 		const totalFiles = allFiles.length;
 
 		if (totalFiles === 0) {
-			console.log("No markdown files found in vault.");
+			console.log("No eligible sources found in vault.");
 			return;
 		}
 
-		// Determine which files need indexing
 		const { toIndex, toRemove, unchanged } = await this.getFilesToProcess(allFiles);
 
 		console.log(`📊 Index status: ${toIndex.length} new/modified, ${toRemove.length} deleted, ${unchanged.length} unchanged`);
 
-		// Remove deleted files from index
 		for (const path of toRemove) {
 			this.removeFileFromIndex(path);
 		}
 
-		// Process new/modified files
 		let processed = 0;
 		const totalToProcess = toIndex.length;
 
@@ -451,18 +487,39 @@ ${context}`;
 			try {
 				await this.indexFile(file);
 				processed++;
-				progressCallback((processed / totalToProcess) * 0.9 + 0.1); // Reserve 10% for saving
+				progressCallback(totalToProcess === 0 ? 0.95 : (processed / totalToProcess) * 0.9 + 0.1);
 			} catch (error) {
 				console.error(`Error indexing ${file.path}:`, error);
 			}
 		}
 
-		// Save to persistent storage
 		progressCallback(0.95);
 		await this.saveEmbeddings();
 		progressCallback(1);
 
 		console.log(`✅ Indexing complete. ${this.fileIndex.size} files indexed.`);
+	}
+
+	private getIndexableFiles(): TFile[] {
+		const allFiles = this.vault.getFiles();
+		const filesByPath = new Map<string, TFile>();
+
+		for (const file of allFiles) {
+			const extension = file.extension.toLowerCase();
+			if (extension === "md") {
+				filesByPath.set(file.path, file);
+				continue;
+			}
+			if (extension === "pdf" && this.settings.indexPdfAttachments) {
+				filesByPath.set(file.path, file);
+				continue;
+			}
+			if (this.settings.ocrImageAttachments && ["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(extension)) {
+				filesByPath.set(file.path, file);
+			}
+		}
+
+		return Array.from(filesByPath.values());
 	}
 
 	private async getFilesToProcess(allFiles: TFile[]): Promise<{
@@ -487,10 +544,10 @@ ${context}`;
 			const existing = this.fileIndex.get(file.path);
 
 			if (!existing) {
-				// New file
 				toIndex.push(file);
 			} else if (file.stat.mtime > existing.modified) {
-				// Modified file
+				toIndex.push(file);
+			} else if (existing.sourceType !== this.getSourceTypeForFile(file)) {
 				toIndex.push(file);
 			} else {
 				unchanged.push(file.path);
@@ -501,52 +558,103 @@ ${context}`;
 	}
 
 	private async indexFile(file: TFile): Promise<void> {
+		const sourceType = this.getSourceTypeForFile(file);
+		if (sourceType === "markdown") {
+			await this.indexMarkdownFile(file);
+			return;
+		}
+
+		const extractedChunks = await this.attachmentExtractor.extractAttachment(file);
+		this.removeFileFromIndex(file.path);
+		if (extractedChunks.length === 0) {
+			console.log(`⏭️ Skipping ${file.path} (no extractable attachment text)`);
+			return;
+		}
+
+		const docs: IndexedDocument[] = [];
+		const now = Date.now();
+		for (const extractedChunk of extractedChunks) {
+			const cleanedContent = this.preprocessExtractedContent(extractedChunk.text);
+			if (cleanedContent.length < MIN_CONTENT_LENGTH) {
+				continue;
+			}
+
+			const chunks = this.splitIntoChunks(cleanedContent);
+			docs.push(...chunks.map((content, chunkIndex) => ({
+				pageContent: content,
+				metadata: {
+					source: file.path,
+					fileName: file.basename,
+					chunk: docs.length + chunkIndex,
+					totalChunks: 0,
+					indexed: now,
+					fileModified: file.stat.mtime,
+					sourceType: extractedChunk.sourceType,
+					extractionMethod: extractedChunk.extractionMethod,
+					pageNumber: extractedChunk.pageNumber,
+				},
+			})));
+		}
+
+		if (docs.length === 0) {
+			return;
+		}
+
+		this.assignChunkTotals(docs);
+		await this.vectorStore.addDocuments(docs);
+		this.fileIndex.set(file.path, {
+			path: file.path,
+			modified: file.stat.mtime,
+			chunks: docs.length,
+			sourceType,
+		});
+		console.log(`✅ Indexed ${file.path} (${docs.length} chunks)`);
+	}
+
+	private async indexMarkdownFile(file: TFile): Promise<void> {
 		const content = await this.vault.cachedRead(file);
-
-		// Preprocess content
-		const cleanedContent = this.preprocessContent(content);
-
-		// Skip files with minimal content
+		const cleanedContent = this.preprocessMarkdownContent(content);
 		if (cleanedContent.length < MIN_CONTENT_LENGTH) {
 			console.log(`⏭️ Skipping ${file.path} (content too short)`);
 			return;
 		}
 
-		// Remove old embeddings for this file
 		this.removeFileFromIndex(file.path);
-
-		// Create chunks with overlap
 		const chunks = this.splitIntoChunks(cleanedContent);
-
 		if (chunks.length === 0) {
 			return;
 		}
-
-		const fileName = file.basename;
 		const now = Date.now();
 
 		const docs: IndexedDocument[] = chunks.map((content, i) => ({
 			pageContent: content,
 			metadata: {
 				source: file.path,
-				fileName: fileName,
+				fileName: file.basename,
 				chunk: i,
 				totalChunks: chunks.length,
 				indexed: now,
-				fileModified: file.stat.mtime
-			}
+				fileModified: file.stat.mtime,
+				sourceType: "markdown",
+				extractionMethod: "markdown",
+			},
 		}));
 
 		await this.vectorStore.addDocuments(docs);
-
-		// Update file index
 		this.fileIndex.set(file.path, {
 			path: file.path,
 			modified: file.stat.mtime,
-			chunks: chunks.length
+			chunks: chunks.length,
+			sourceType: "markdown",
 		});
-
 		console.log(`✅ Indexed ${file.path} (${chunks.length} chunks)`);
+	}
+
+	private assignChunkTotals(docs: IndexedDocument[]): void {
+		for (let i = 0; i < docs.length; i++) {
+			docs[i].metadata.chunk = i;
+			docs[i].metadata.totalChunks = docs.length;
+		}
 	}
 
 	private removeFileFromIndex(path: string): void {
@@ -555,7 +663,7 @@ ${context}`;
 		this.cachedEmbeddings.delete(path);
 	}
 
-	private preprocessContent(content: string): string {
+	private preprocessMarkdownContent(content: string): string {
 		let processed = content;
 
 		// Remove YAML frontmatter
@@ -600,6 +708,24 @@ ${context}`;
 		processed = processed.trim();
 
 		return processed;
+	}
+
+	private preprocessExtractedContent(content: string): string {
+		return content
+			.replace(/<[^>]*>/g, " ")
+			.replace(/\s+/g, " ")
+			.trim();
+	}
+
+	private getSourceTypeForFile(file: TFile): IndexedSourceType {
+		const extension = file.extension.toLowerCase();
+		if (extension === "pdf") {
+			return "pdf";
+		}
+		if (["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(extension)) {
+			return "image";
+		}
+		return "markdown";
 	}
 
 	private splitIntoChunks(content: string): string[] {
@@ -696,7 +822,7 @@ ${context}`;
 
 	async findSimilarNotes(query: string): Promise<string> {
 		try {
-			const similarNotes = await this.findRelatedNotes(query);
+			const similarNotes = (await this.findRelatedNotes(query)).filter(note => note.sourceType === "markdown");
 			if (similarNotes.length === 0) {
 				return '';
 			}
@@ -752,7 +878,10 @@ ${context}`;
 					path: sourcePath,
 					fileName: entry.doc.metadata.fileName || sourcePath,
 					preview,
-					score
+					score,
+					sourceType: entry.doc.metadata.sourceType,
+					pageNumber: entry.doc.metadata.pageNumber,
+					sourceLabel: this.formatSourceLabel(entry.doc.metadata),
 				});
 			}
 		}
@@ -775,6 +904,10 @@ ${context}`;
 		return this.fileIndex.size;
 	}
 
+	getEligibleSourceCount(): number {
+		return this.getIndexableFiles().length;
+	}
+
 	isInitialized(): boolean {
 		return this.isLoaded;
 	}
@@ -794,13 +927,16 @@ ${context}`;
 				embeddings: storedEmbeddings,
 				fileIndex: Array.from(this.fileIndex.values()),
 				lastIndexed: Date.now(),
-				version: '2.0',
+				version: "3.0",
 				settings: {
 					provider: this.provider,
 					model: this.embeddingConfig.model,
 					serverAddress: this.settings.serverAddress,
-					embeddingServerAddress: this.embeddingConfig.serverAddress
-				}
+					embeddingServerAddress: this.embeddingConfig.serverAddress,
+					indexPdfAttachments: this.settings.indexPdfAttachments,
+					ocrImageAttachments: this.settings.ocrImageAttachments,
+					ocrScannedPdfAttachments: this.settings.ocrScannedPdfAttachments,
+				},
 			};
 
 			const adapter = this.plugin.app.vault.adapter;
@@ -824,43 +960,43 @@ ${context}`;
 				const embeddingJson = await adapter.read(embeddingPath);
 				data = JSON.parse(embeddingJson);
 			} catch {
-				console.log('📂 No existing embeddings found');
+				console.log("📂 No existing embeddings found");
 				return;
 			}
 
 			if (!data?.embeddings?.length) {
-				console.log('📂 Empty embeddings file');
+				console.log("📂 Empty embeddings file");
 				return;
 			}
 
-			// Check if settings changed
 			if (this.shouldRebuildIndex(data.settings)) {
-				console.log('⚠️ Embedding settings changed. Re-indexing recommended.');
-				// Still load old embeddings, but warn user
+				console.log("⚠️ Embedding settings changed. Re-indexing recommended.");
 			}
 
-			// Restore vector store
 			this.vectorStore = new InMemoryVectorStore(this.embeddings);
 			this.vectorStore.entries = data.embeddings.map(stored => ({
 				doc: {
 					pageContent: stored.content,
-					metadata: stored.metadata
+					metadata: {
+						...stored.metadata,
+						sourceType: stored.metadata.sourceType || "markdown",
+						extractionMethod: stored.metadata.extractionMethod || "markdown",
+					},
 				},
 				vector: stored.vector
 			}));
 
-			// Restore file index
 			this.fileIndex.clear();
-
-			// Handle both old format (indexedFiles: string[]) and new format (fileIndex: FileIndex[])
 			if (data.fileIndex) {
 				for (const file of data.fileIndex) {
-					this.fileIndex.set(file.path, file);
+					this.fileIndex.set(file.path, {
+						...file,
+						sourceType: file.sourceType || "markdown",
+					});
 				}
 			} else if (data.indexedFiles) {
-				// Migrate from old format
 				for (const path of data.indexedFiles) {
-					this.fileIndex.set(path, { path, modified: 0, chunks: 0 });
+					this.fileIndex.set(path, { path, modified: 0, chunks: 0, sourceType: "markdown" });
 				}
 			}
 
@@ -877,16 +1013,14 @@ ${context}`;
 
 		return (
 			savedSettings.model !== this.embeddingConfig.model ||
-			savedEmbeddingServer !== this.embeddingConfig.serverAddress
+			savedEmbeddingServer !== this.embeddingConfig.serverAddress ||
+			Boolean(savedSettings.indexPdfAttachments) !== this.embeddingConfig.indexPdfAttachments ||
+			Boolean(savedSettings.ocrImageAttachments) !== this.embeddingConfig.ocrImageAttachments ||
+			Boolean(savedSettings.ocrScannedPdfAttachments) !== this.embeddingConfig.ocrScannedPdfAttachments
 		);
 	}
 
-	async getStorageStats(): Promise<{
-		totalEmbeddings: number;
-		indexedFiles: number;
-		lastIndexed: string;
-		storageUsed: string;
-	}> {
+	async getStorageStats(): Promise<IndexStorageStats> {
 		try {
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
@@ -899,8 +1033,9 @@ ${context}`;
 				return {
 					totalEmbeddings: 0,
 					indexedFiles: 0,
-					lastIndexed: 'Never',
-					storageUsed: '0 KB'
+					lastIndexed: "Never",
+					storageUsed: "0 KB",
+					sourceCounts: this.createEmptySourceCounts(),
 				};
 			}
 
@@ -908,8 +1043,9 @@ ${context}`;
 				return {
 					totalEmbeddings: 0,
 					indexedFiles: 0,
-					lastIndexed: 'Never',
-					storageUsed: '0 KB'
+					lastIndexed: "Never",
+					storageUsed: "0 KB",
+					sourceCounts: this.createEmptySourceCounts(),
 				};
 			}
 
@@ -920,21 +1056,27 @@ ${context}`;
 					? `${(storageSize / 1024).toFixed(1)} KB`
 					: `${(storageSize / (1024 * 1024)).toFixed(1)} MB`;
 
-			const indexedFiles = data.fileIndex?.length || data.indexedFiles?.length || 0;
+			const fileIndexEntries = data.fileIndex?.map(file => ({
+				...file,
+				sourceType: file.sourceType || "markdown",
+			})) || data.indexedFiles?.map(path => ({ path, modified: 0, chunks: 0, sourceType: "markdown" as const })) || [];
+			const indexedFiles = fileIndexEntries.length;
 
 			return {
 				totalEmbeddings: data.embeddings?.length || 0,
 				indexedFiles,
-				lastIndexed: data.lastIndexed ? new Date(data.lastIndexed).toLocaleString() : 'Never',
-				storageUsed
+				lastIndexed: data.lastIndexed ? new Date(data.lastIndexed).toLocaleString() : "Never",
+				storageUsed,
+				sourceCounts: this.countSourceTypes(fileIndexEntries),
 			};
 		} catch (error) {
 			console.error('Failed to get storage stats:', error);
 			return {
 				totalEmbeddings: 0,
 				indexedFiles: 0,
-				lastIndexed: 'Error',
-				storageUsed: 'Unknown'
+				lastIndexed: "Error",
+				storageUsed: "Unknown",
+				sourceCounts: this.createEmptySourceCounts(),
 			};
 		}
 	}
@@ -969,5 +1111,56 @@ ${context}`;
 			await new Promise(resolve => window.setTimeout(resolve, 100));
 			attempts++;
 		}
+	}
+
+	async dispose(): Promise<void> {
+		await this.attachmentExtractor.dispose();
+	}
+
+	private buildSourceReferences(docs: IndexedDocument[]): SourceReference[] {
+		const seen = new Set<string>();
+		const sources: SourceReference[] = [];
+
+		for (const doc of docs) {
+			const label = this.formatSourceLabel(doc.metadata);
+			const key = `${doc.metadata.source}::${doc.metadata.pageNumber || 0}::${label}`;
+			if (seen.has(key)) {
+				continue;
+			}
+			seen.add(key);
+			sources.push({
+				path: doc.metadata.source,
+				label,
+				sourceType: doc.metadata.sourceType,
+				pageNumber: doc.metadata.pageNumber,
+			});
+		}
+
+		return sources;
+	}
+
+	private getContextSourceLabel(metadata: EmbeddingMetadata, index: number): string {
+		return this.formatSourceLabel(metadata) || metadata.source || `Source ${index + 1}`;
+	}
+
+	private formatSourceLabel(metadata: EmbeddingMetadata): string {
+		const pageLabel = metadata.pageNumber ? ` (page ${metadata.pageNumber})` : "";
+		return `${metadata.fileName || metadata.source}${pageLabel}`;
+	}
+
+	private createEmptySourceCounts(): Record<IndexedSourceType, number> {
+		return {
+			markdown: 0,
+			pdf: 0,
+			image: 0,
+		};
+	}
+
+	private countSourceTypes(fileIndexEntries: Array<Pick<FileIndex, "sourceType">>): Record<IndexedSourceType, number> {
+		const counts = this.createEmptySourceCounts();
+		for (const file of fileIndexEntries) {
+			counts[file.sourceType] = (counts[file.sourceType] || 0) + 1;
+		}
+		return counts;
 	}
 }

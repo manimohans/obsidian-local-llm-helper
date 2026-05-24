@@ -153,7 +153,7 @@ export class RelatedNotesView extends ItemView {
 
 			const titleRow = body.createDiv({ cls: "llm-helper-related-note-title-row" });
 			const titleButton = titleRow.createEl("button", {
-				text: result.fileName,
+				text: result.sourceLabel,
 				cls: "llm-helper-related-note-open"
 			});
 			titleButton.addEventListener("click", () => {

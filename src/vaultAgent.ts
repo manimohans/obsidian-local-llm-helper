@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, TFile, requestUrl, setIcon } from "obsidian";
+import { App, MarkdownRenderer, MarkdownView, Notice, TFile, requestUrl, setIcon } from "obsidian";
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type OLocalLLMPlugin from "../main";
 import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
@@ -373,7 +373,7 @@ export class VaultAgentService {
 		options: RenderAgentResponseOptions,
 	): string {
 		const renderedMessage = response.message || "I drafted a vault action for your review.";
-		const assistantMessage = this.createAssistantMessage(chatHistoryEl, renderedMessage, options);
+		const assistantMessage = this.createAssistantMessage(chatHistoryEl, renderedMessage, context, options);
 
 		if (response.parseError) {
 			this.appendStatusMessage(assistantMessage, `Invalid action payload: ${response.parseError}`, "failed");
@@ -402,7 +402,12 @@ export class VaultAgentService {
 		return renderedMessage;
 	}
 
-	private createAssistantMessage(chatHistoryEl: HTMLElement, text: string, options: RenderAgentResponseOptions): HTMLElement {
+	private createAssistantMessage(
+		chatHistoryEl: HTMLElement,
+		text: string,
+		context: ChatEnvironmentContext,
+		options: RenderAgentResponseOptions,
+	): HTMLElement {
 		const responseContainer = chatHistoryEl.createDiv({ cls: options.messageClassName });
 		if (options.badgeText) {
 			const badgeRow = responseContainer.createDiv({ cls: "rag-chat-badge-row" });
@@ -415,8 +420,36 @@ export class VaultAgentService {
 		const responseTextEl = options.responseTextClassName
 			? responseContainer.createDiv({ cls: options.responseTextClassName })
 			: responseContainer.createDiv();
-		renderSafeMarkdownishText(responseTextEl, text);
+		this.renderResponseText(responseTextEl, text, context, options.scrollToBottom);
 		return responseContainer;
+	}
+
+	private renderResponseText(
+		container: HTMLElement,
+		text: string,
+		context: ChatEnvironmentContext,
+		scrollToBottom?: () => void,
+	): void {
+		if (!this.plugin.settings.renderMarkdownInChat) {
+			renderSafeMarkdownishText(container, text);
+			return;
+		}
+
+		container.addClass("markdown-rendered", "llm-helper-chat-markdown");
+		void MarkdownRenderer.render(
+			this.app,
+			text,
+			container,
+			context.activeFilePath || "",
+			this.plugin,
+		).then(() => {
+			scrollToBottom?.();
+		}).catch((error) => {
+			console.error("Markdown rendering failed:", error);
+			container.empty();
+			renderSafeMarkdownishText(container, text);
+			scrollToBottom?.();
+		});
 	}
 
 	private renderPendingAction(

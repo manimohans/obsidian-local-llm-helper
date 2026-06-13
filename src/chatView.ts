@@ -29,6 +29,7 @@ export class ChatView extends ItemView {
 	private conversationHistory: ConversationEntry[] = [];
 	private initialChatContext: ChatEnvironmentContext;
 	private headerStatusEl!: HTMLElement;
+	private markdownRenderBtn!: HTMLButtonElement;
 	private modeGeneralBtn!: HTMLButtonElement;
 	private modeNotesBtn!: HTMLButtonElement;
 	private scopeContainerEl!: HTMLElement;
@@ -64,6 +65,7 @@ export class ChatView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		this.containerEl.addClass("llm-helper-chat-view");
+		this.contentEl.addClass("llm-helper-chat-content");
 		this.renderShell();
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf: WorkspaceLeaf | null) => {
 			if (leaf?.view instanceof MarkdownView) {
@@ -122,6 +124,15 @@ export class ChatView extends ItemView {
 		const titleText = titleWrap.createDiv({ cls: "llm-helper-chat-title-text" });
 		titleText.createEl("h2", { text: "LLM Chat" });
 		this.headerStatusEl = titleText.createDiv({ cls: "llm-helper-chat-status" });
+
+		this.markdownRenderBtn = headerEl.createEl("button", {
+			cls: "clickable-icon llm-helper-chat-header-action",
+		});
+		setIcon(this.markdownRenderBtn, "pilcrow");
+		this.markdownRenderBtn.addEventListener("click", () => {
+			void this.toggleMarkdownRendering();
+		});
+		this.renderMarkdownToggle();
 
 		const clearBtn = headerEl.createEl("button", {
 			cls: "clickable-icon llm-helper-chat-header-action",
@@ -189,6 +200,23 @@ export class ChatView extends ItemView {
 		this.modeNotesBtn.toggleClass("is-active", this.mode === "notes");
 		this.modeGeneralBtn.setAttribute("aria-pressed", String(this.mode === "general"));
 		this.modeNotesBtn.setAttribute("aria-pressed", String(this.mode === "notes"));
+		this.renderMarkdownToggle();
+	}
+
+	private renderMarkdownToggle(): void {
+		const isEnabled = this.plugin.settings.renderMarkdownInChat;
+		this.markdownRenderBtn.toggleClass("is-active", isEnabled);
+		this.markdownRenderBtn.setAttribute("aria-pressed", String(isEnabled));
+		this.markdownRenderBtn.setAttribute("aria-label", isEnabled ? "Disable markdown rendering" : "Enable markdown rendering");
+		this.markdownRenderBtn.setAttribute("title", isEnabled ? "Markdown rendering on" : "Markdown rendering off");
+	}
+
+	private async toggleMarkdownRendering(): Promise<void> {
+		const nextValue = !this.plugin.settings.renderMarkdownInChat;
+		this.plugin.settings.renderMarkdownInChat = nextValue;
+		this.renderMarkdownToggle();
+		await this.plugin.saveSettings();
+		new Notice(`Markdown rendering ${nextValue ? "enabled" : "disabled"} for new responses.`);
 	}
 
 	private renderScopeSelector(): void {
@@ -421,8 +449,9 @@ export class ChatView extends ItemView {
 	}
 
 	private resizeComposer(): void {
-		this.textInput.style.height = "auto";
-		this.textInput.style.height = `${Math.min(this.textInput.scrollHeight, 140)}px`;
+		this.textInput.setCssProps({ "--llm-helper-chat-input-height": "auto" });
+		const nextHeight = `${Math.min(this.textInput.scrollHeight, 140)}px`;
+		this.textInput.setCssProps({ "--llm-helper-chat-input-height": nextHeight });
 	}
 
 	private getFriendlyErrorMessage(errorText: string): string {

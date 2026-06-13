@@ -40,6 +40,7 @@ export class RelatedNotesView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		this.containerEl.addClass("llm-helper-related-notes-view");
+		this.contentEl.addClass("llm-helper-related-notes-content");
 		this.renderShell();
 		await this.refresh();
 	}

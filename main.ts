@@ -81,6 +81,7 @@ export interface OLocalLLMSettings {
 	ocrScannedPdfAttachments: boolean;
 	enableVaultActions: boolean;
 	showAgentDebug: boolean;
+	renderMarkdownInChat: boolean;
 	workflowDefaults: WorkflowDefaults;
 }
 
@@ -119,6 +120,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	ocrScannedPdfAttachments: false,
 	enableVaultActions: false,
 	showAgentDebug: false,
+	renderMarkdownInChat: true,
 	workflowDefaults: createDefaultWorkflowDefaults(),
 };
 
@@ -1602,6 +1604,18 @@ class OLLMSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.maxConvHistory.toString())
 					.onChange(async (value) => {
 						this.plugin.settings.maxConvHistory = parseInt(value);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Render markdown in chat")
+			.setDesc("Render assistant responses in chat views with Obsidian's Markdown renderer. Turn this off to keep plain escaped text.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.renderMarkdownInChat)
+					.onChange(async (value) => {
+						this.plugin.settings.renderMarkdownInChat = value;
 						await this.plugin.saveSettings();
 					})
 			);

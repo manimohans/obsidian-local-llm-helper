@@ -37,6 +37,7 @@ Local LLM Helper turns Obsidian into a private AI workspace without forcing your
 | --- | --- |
 | **RAG chat over your vault** | Ask questions against indexed notes with clickable source references. |
 | **Scoped note chat** | Limit chat to the current note, current folder, selected notes, tags, or the whole vault. |
+| **Markdown chat rendering** | Render assistant responses in chat views with Obsidian markdown, or switch back to plain text. |
 | **Related Notes sidebar** | Keep semantically nearby notes visible while writing or researching. |
 | **Manual workflow runner** | Draft weekly reviews, meeting tasks, and project status updates from note context. |
 | **Text commands** | Summarize, rewrite, extract action items, use custom prompts, and run saved prompts. |
@@ -132,6 +133,7 @@ All commands are available via Command Palette (`Cmd/Ctrl + P`) or the ribbon me
 - Remembers recent exchanges for context.
 - Supports all configured personas.
 - Can propose approval-gated Vault Actions when enabled.
+- Can render assistant responses with Obsidian markdown from the sidebar toggle or settings.
 - Opens in a docked sidebar so your notes stay visible while you chat.
 
 **RAG Chat** for note-grounded answers:
@@ -265,6 +267,12 @@ Notes:
 
 ## Changelog
 
+### v2.4.7
+
+**Chat Rendering**
+- Added optional Obsidian markdown rendering for assistant responses across chat views.
+- Added a sidebar toggle and matching setting to switch between rendered markdown and plain escaped text.
+
 ### v2.4.5
 
 **Dockable Chat Sidebar**
@@ -390,7 +398,7 @@ Notes:
 
 ## Requirements
 
-- Obsidian 1.7.0 or later
+- Obsidian 1.7.2 or later
 - Any LLM server with OpenAI-compatible API (Ollama, LM Studio, OpenAI, vLLM, etc.)
 
 ## Support

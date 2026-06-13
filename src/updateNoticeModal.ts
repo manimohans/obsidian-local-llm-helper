@@ -3,6 +3,15 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.7",
+		date: "2026-06",
+		changes: `
+**Chat Rendering**
+- Added optional Obsidian markdown rendering for assistant responses across chat views.
+- Added a sidebar toggle and matching setting to switch between rendered markdown and plain escaped text.
+`,
+	},
+	{
 		version: "2.4.6",
 		date: "2026-05",
 		changes: `

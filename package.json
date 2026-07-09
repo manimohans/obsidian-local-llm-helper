@@ -1,6 +1,6 @@
 {
   "name": "obsidian-local-llm-helper",
-  "version": "1.0.0",
+  "version": "2.4.8",
   "description": "Local LLM helper plugin for Obsidian",
   "main": "main.js",
   "dependencies": {

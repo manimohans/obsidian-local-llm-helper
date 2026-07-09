@@ -3,6 +3,23 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.4.8",
+		date: "2026-07",
+		changes: `
+**Reliability**
+- Hardened RAG index loading, persistence, chunking, similarity filtering, and embedding retries.
+- Added clearer validation and error handling for auto-tagging, model discovery, web search, and embedding responses.
+- Prevented duplicate RAG chat submissions and cleaned up plugin timers and status elements on unload.
+
+**Text and Prompt Workflows**
+- Unified text actions across commands and the ribbon menu, including consistent streamed and non-streamed replacements.
+- Preserved saved prompt IDs when editing and prevented custom prompt command collisions.
+
+**Diagnostics**
+- Routed routine console output through the existing debug setting while keeping diagnostics, warnings, and errors visible.
+`,
+	},
+	{
 		version: "2.4.7",
 		date: "2026-06",
 		changes: `
@@ -23,6 +40,14 @@ const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 **Compatibility**
 - Leaving embedding settings blank keeps the current single-server setup.
 - Setting the embedding API key to \`not-needed\` sends no Authorization header for embedding requests.
+`,
+	},
+	{
+		version: "2.4.5",
+		date: "2026-05",
+		changes: `
+**Chat Sidebar**
+- Added a dockable chat sidebar view alongside the existing popup chat.
 `,
 	},
 	{

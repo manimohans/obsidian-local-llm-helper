@@ -1,4 +1,6 @@
-import { requestUrl } from "obsidian";
+import { requestUrl, type RequestUrlParam, type RequestUrlResponse } from "obsidian";
+import { buildOpenAIHeaders, getOpenAIBaseUrl } from "./providerSettings";
+import { debugLog } from "./debug";
 
 /**
  * OpenAI-compatible embeddings client.
@@ -51,12 +53,12 @@ export class OpenAIEmbeddings {
 	) {
 		this.apiKey = apiKey.trim() || "not-needed";
 		this.modelName = modelName;
-		this.baseURL = baseURL.endsWith("/v1") ? baseURL : `${baseURL}/v1`;
+		this.baseURL = getOpenAIBaseUrl(baseURL);
 		this.batchSize = options.batchSize ?? 96;
 		this.stripNewLines = options.stripNewLines ?? true;
 		this.timeoutMs = options.timeoutMs ?? 60_000;
 
-		console.log(
+		debugLog(
 			`OpenAI-compatible Embeddings initialized - URL: ${this.baseURL}, Model: ${modelName}`
 		);
 	}
@@ -64,7 +66,7 @@ export class OpenAIEmbeddings {
 	async embedDocuments(documents: string[]): Promise<number[][]> {
 		if (documents.length === 0) return [];
 
-		console.log(`Embedding ${documents.length} documents...`);
+		debugLog(`Embedding ${documents.length} documents...`);
 		const inputs = this.stripNewLines
 			? documents.map((t) => t.replace(/\n/g, " "))
 			: documents.slice();
@@ -78,26 +80,21 @@ export class OpenAIEmbeddings {
 			}
 		}
 
-		console.log(`Successfully embedded ${documents.length} documents`);
+		debugLog(`Successfully embedded ${documents.length} documents`);
 		return result;
 	}
 
 	async embedQuery(text: string): Promise<number[]> {
-		console.log(`Embedding query...`);
+		debugLog(`Embedding query...`);
 		const input = this.stripNewLines ? text.replace(/\n/g, " ") : text;
 		const vectors = await this.callEmbeddingsAPI([input]);
-		console.log(`Successfully embedded query`);
+		debugLog(`Successfully embedded query`);
 		return vectors[0];
 	}
 
 	private async callEmbeddingsAPI(inputs: string[]): Promise<number[][]> {
 		const url = `${this.baseURL}/embeddings`;
-		const headers: Record<string, string> = {
-			"Content-Type": "application/json",
-		};
-		if (this.apiKey && this.apiKey !== "not-needed") {
-			headers["Authorization"] = `Bearer ${this.apiKey}`;
-		}
+		const headers = buildOpenAIHeaders(this.apiKey);
 
 		const body = JSON.stringify({
 			model: this.modelName,
@@ -105,17 +102,33 @@ export class OpenAIEmbeddings {
 			encoding_format: "float",
 		});
 
-		let response;
-		try {
-			response = await requestUrl({
-				url,
-				method: "POST",
-				headers,
-				body,
-				throw: false,
-			});
-		} catch (error) {
-			throw this.createHelpfulError(error);
+		const maxAttempts = 3;
+		let response: RequestUrlResponse | undefined;
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				response = await this.requestWithTimeout({
+					url,
+					method: "POST",
+					headers,
+					body,
+					throw: false,
+				});
+			} catch (error) {
+				// Network failure or timeout — transient, worth retrying
+				if (attempt < maxAttempts) {
+					await this.delay(500 * attempt);
+					continue;
+				}
+				throw this.createHelpfulError(error);
+			}
+			if (response.status >= 500 && attempt < maxAttempts) {
+				await this.delay(500 * attempt);
+				continue;
+			}
+			break;
+		}
+		if (!response) {
+			throw new Error("Embeddings request failed with no response.");
 		}
 
 		if (response.status < 200 || response.status >= 300) {
@@ -165,6 +178,25 @@ export class OpenAIEmbeddings {
 
 		this.validateVectors(vectors);
 		return vectors;
+	}
+
+	private async requestWithTimeout(params: RequestUrlParam): Promise<RequestUrlResponse> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const timeout = new Promise<never>((_, reject) => {
+			timer = setTimeout(
+				() => reject(new Error(`Embeddings request timed out after ${this.timeoutMs} ms`)),
+				this.timeoutMs
+			);
+		});
+		try {
+			return await Promise.race([requestUrl(params), timeout]);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	private delay(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 
 	/**

@@ -19,6 +19,7 @@ export class RAGChatModal extends Modal {
 	private initialChatContext: ChatEnvironmentContext;
 	private scopeSelector: RAGScopeSelector;
 	private initialScope?: RAGQueryScope;
+	private isSubmitting: boolean = false;
 
 	constructor(app: App, settings: OLocalLLMSettings, ragManager: RAGManager, plugin: OLocalLLMPlugin, initialScope?: RAGQueryScope) {
 		super(app);
@@ -126,7 +127,10 @@ export class RAGChatModal extends Modal {
 	}
 
 	private async handleSubmit() {
-		if (this.result.trim() === "") return;
+		if (this.isSubmitting || this.result.trim() === "") return;
+		this.isSubmitting = true;
+		this.textInput.setDisabled(true);
+		this.submitButton.setDisabled(true);
 
 		this.hideWelcomeMessage();
 
@@ -180,6 +184,11 @@ export class RAGChatModal extends Modal {
 			console.error("RAG Chat Error:", error);
 			new Notice(error instanceof Error ? error.message : "Notes chat failed. Make sure notes are indexed.");
 			this.scrollToBottom();
+		} finally {
+			this.isSubmitting = false;
+			this.textInput.setDisabled(false);
+			this.updateSubmitButtonState();
+			this.textInput.inputEl.focus();
 		}
 	}
 
@@ -190,7 +199,7 @@ export class RAGChatModal extends Modal {
 	}
 
 	private updateSubmitButtonState() {
-		const isEmpty = this.result.trim() === "";
+		const isEmpty = this.result.trim() === "" || this.isSubmitting;
 		this.submitButton.setDisabled(isEmpty);
 		if (isEmpty) {
 			this.submitButton.buttonEl.addClass("rag-chat-submit-disabled");

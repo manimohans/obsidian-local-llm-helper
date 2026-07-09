@@ -28,6 +28,7 @@ import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS
 import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
 import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext } from './src/vaultAgent';
 import { submitGeneralChat, updateConversationHistory as recordConversationHistory } from './src/chatSession';
+import { debugLog, setDebugLogging } from './src/debug';
 import { WorkflowModal } from './src/workflowModal';
 import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
 import type { WorkflowDefaults } from './src/workflowTypes';
@@ -128,6 +129,47 @@ function normalizeSearxngInstanceUrl(url: string): string {
 	return normalizeServerAddress(url);
 }
 
+// Single source of truth for the built-in text actions, used by both the
+// command palette registrations and the ribbon menu.
+interface TextAction {
+	commandId: string;
+	commandName: string;
+	menuTitle: string;
+	icon: string;
+	prompt: string;
+}
+
+const TEXT_ACTIONS: Record<string, TextAction> = {
+	summarize: {
+		commandId: "summarize-selected-text",
+		commandName: "Text: Summarize",
+		menuTitle: "Summarize",
+		icon: "minimize-2",
+		prompt: "Summarize the following text concisely. Preserve markdown formatting:",
+	},
+	makeProfessional: {
+		commandId: "makeitprof-selected-text",
+		commandName: "Text: Make professional",
+		menuTitle: "Make professional",
+		icon: "briefcase",
+		prompt: "Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
+	},
+	actionItems: {
+		commandId: "actionitems-selected-text",
+		commandName: "Text: Generate action items",
+		menuTitle: "Generate action items",
+		icon: "list-todo",
+		prompt: "Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
+	},
+	useAsPrompt: {
+		commandId: "gentext-selected-text",
+		commandName: "Text: Use as prompt",
+		menuTitle: "Use as prompt",
+		icon: "lightbulb",
+		prompt: "Respond to the following prompt:",
+	},
+};
+
 export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
 	conversationHistory: ConversationEntry[] = [];
@@ -141,13 +183,14 @@ export default class OLocalLLMPlugin extends Plugin {
 	public personasDict: PersonasDict = {};
 	private registeredPromptCommands: Set<string> = new Set();
 	private relatedNotesRefreshTimer: number | null = null;
+	private storageNotificationTimer: number | null = null;
+	statusBarItemEl: HTMLElement | null = null;
 	private lastRelatedNotesContext: RelatedNotesContext | null = null;
 	private lastMarkdownLeaf: WorkspaceLeaf | null = null;
 
 	async checkForUpdates() {
 		const currentVersion = this.manifest.version;
 		const lastVersion = this.settings.lastVersion || "0.0.0";
-		//const lastVersion = "0.0.0";
 
 		if (currentVersion !== lastVersion) {
 			new UpdateNoticeModal(this.app, currentVersion).open();
@@ -174,7 +217,8 @@ export default class OLocalLLMPlugin extends Plugin {
 		
 		// Show user-friendly notification about loaded embeddings after a short delay
 		// This ensures all UI elements are ready
-		window.setTimeout(() => {
+		this.storageNotificationTimer = window.setTimeout(() => {
+			this.storageNotificationTimer = null;
 			void this.showStorageNotification();
 		}, 500);
 
@@ -211,8 +255,6 @@ export default class OLocalLLMPlugin extends Plugin {
 			callback: this.handleDiagnostics.bind(this),
 		});
 
-		// Remove the automatic indexing
-		// this.indexNotes();
 		this.addCommand({
 			id: 'rag-chat',
 			name: 'Chat: Notes (RAG)',
@@ -281,133 +323,35 @@ export default class OLocalLLMPlugin extends Plugin {
 			}
 		}));
 
-		this.addCommand({
-			id: "summarize-selected-text",
-			name: "Text: Summarize",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.isKillSwitchActive = false; // Reset kill switch state
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processText(
-						selectedText,
-						"Summarize the following text concisely. Preserve markdown formatting:",
-						this
-					);
-				} else {
-					new Notice("Please select some text first");
-				}
-			},
-		});
-
-		this.addCommand({
-			id: "makeitprof-selected-text",
-			name: "Text: Make professional",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.isKillSwitchActive = false; // Reset kill switch state
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processText(
-						selectedText,
-						"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
-						this
-					);
-				} else {
-					new Notice("Please select some text first");
-				}
-			},
-		});
-
-		this.addCommand({
-			id: "actionitems-selected-text",
-			name: "Text: Generate action items",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.isKillSwitchActive = false; // Reset kill switch state
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processText(
-						selectedText,
-						"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
-						this
-					);
-				} else {
-					new Notice("Please select some text first");
-				}
-			},
-		});
+		for (const action of Object.values(TEXT_ACTIONS)) {
+			this.addCommand({
+				id: action.commandId,
+				name: action.commandName,
+				editorCallback: () => this.runTextAction(action.prompt),
+			});
+		}
 
 		this.addCommand({
 			id: "custom-selected-text",
 			name: "Text: Run custom prompt",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.isKillSwitchActive = false; // Reset kill switch state
-				new Notice("Custom prompt: " + this.settings.customPrompt);
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processText(
-						selectedText,
-						this.settings.customPrompt,
-						this
-					);
-				} else {
-					new Notice("Please select some text first");
-				}
-			},
-		});
-
-		this.addCommand({
-			id: "gentext-selected-text",
-			name: "Text: Use as prompt",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				this.isKillSwitchActive = false; // Reset kill switch state
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processText(
-						selectedText,
-						"Respond to the following prompt:",
-						this
-					);
-				} else {
-					new Notice("Please select some text first");
-				}
+			editorCallback: () => {
+				this.runTextAction(
+					this.settings.customPrompt,
+					"Custom prompt: " + this.settings.customPrompt
+				);
 			},
 		});
 
 		this.addCommand({
 			id: "edit-with-prompt",
 			name: "Text: Edit with prompt...",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				const selectedText = this.getSelectedText();
-				if (selectedText.length === 0) {
-					new Notice("Please select some text first");
-					return;
-				}
-				new PromptPickerModal(this.app, (prompt: string) => {
-					this.isKillSwitchActive = false;
-					void processText(selectedText, prompt, this);
-				}).open();
-			},
+			editorCallback: () => this.openPromptPicker(),
 		});
 
 		this.addCommand({
 			id: "select-custom-prompt",
 			name: "Text: Run saved prompt...",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				const prompts = this.settings.customPrompts || [];
-				if (prompts.length === 0) {
-					new Notice("No saved prompts yet. Add some in settings.");
-					return;
-				}
-				const selectedText = this.getSelectedText();
-				if (selectedText.length === 0) {
-					new Notice("Please select some text first");
-					return;
-				}
-				new SelectPromptModal(this.app, prompts, (chosen) => {
-					this.isKillSwitchActive = false;
-					new Notice("Running: " + chosen.title);
-					void processText(selectedText, chosen.prompt, this);
-				}).open();
-			},
+			editorCallback: () => this.openSavedPromptPicker(),
 		});
 
 		this.addCommand({
@@ -535,76 +479,24 @@ export default class OLocalLLMPlugin extends Plugin {
 				item
 					.setTitle("Edit with prompt...")
 					.setIcon("wand")
-					.onClick(async () => {
-						let selectedText = this.getSelectedText();
-						if (selectedText.length === 0) {
-							new Notice("Please select some text first");
-							return;
-						}
-						new PromptPickerModal(this.app, (prompt: string) => {
-							this.isKillSwitchActive = false;
-							void processText(selectedText, prompt, this);
-						}).open();
-					})
+					.onClick(() => this.openPromptPicker())
 			);
 
-			menu.addItem((item) =>
-				item
-					.setTitle("Summarize")
-					.setIcon("minimize-2")
-					.onClick(async () => {
-						this.isKillSwitchActive = false;
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							void processText(
-								selectedText,
-								"Summarize the following text concisely. Preserve markdown formatting:",
-								this
-							);
-						}
-					})
-			);
-
-			menu.addItem((item) =>
-				item
-					.setTitle("Make professional")
-					.setIcon("briefcase")
-					.onClick(async () => {
-						this.isKillSwitchActive = false;
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							void processText(
-								selectedText,
-								"Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
-								this
-							);
-						}
-					})
-			);
-
-			menu.addItem((item) =>
-				item
-					.setTitle("Generate action items")
-					.setIcon("list-todo")
-					.onClick(async () => {
-						this.isKillSwitchActive = false;
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							void processText(
-								selectedText,
-								"Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
-								this
-							);
-						}
-					})
-			);
+			for (const action of [TEXT_ACTIONS.summarize, TEXT_ACTIONS.makeProfessional, TEXT_ACTIONS.actionItems]) {
+				menu.addItem((item) =>
+					item
+						.setTitle(action.menuTitle)
+						.setIcon(action.icon)
+						.onClick(() => this.runTextAction(action.prompt))
+				);
+			}
 
 			menu.addItem((item) =>
 				item
 					.setTitle("Generate tags")
 					.setIcon("hash")
-					.onClick(async () => {
-						let selectedText = this.getSelectedText();
+					.onClick(() => {
+						const selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							new Notice("Generating tags...");
 							void generateAndAppendTags(this.app, this.settings);
@@ -614,36 +506,20 @@ export default class OLocalLLMPlugin extends Plugin {
 
 			menu.addItem((item) =>
 				item
-					.setTitle("Use as prompt")
-					.setIcon("lightbulb")
-					.onClick(async () => {
-						this.isKillSwitchActive = false;
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							void processText(
-								selectedText,
-								"Respond to the following prompt:",
-								this
-							);
-						}
-					})
+					.setTitle(TEXT_ACTIONS.useAsPrompt.menuTitle)
+					.setIcon(TEXT_ACTIONS.useAsPrompt.icon)
+					.onClick(() => this.runTextAction(TEXT_ACTIONS.useAsPrompt.prompt))
 			);
 
 			menu.addItem((item) =>
 				item
 					.setTitle("Custom prompt")
 					.setIcon("pencil")
-					.onClick(async () => {
-						this.isKillSwitchActive = false;
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							new Notice("Running: " + this.settings.customPrompt);
-							void processText(
-								selectedText,
-								this.settings.customPrompt,
-								this
-							);
-						}
+					.onClick(() => {
+						this.runTextAction(
+							this.settings.customPrompt,
+							"Running: " + this.settings.customPrompt
+						);
 					})
 			);
 
@@ -651,23 +527,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				item
 					.setTitle("Run saved prompt...")
 					.setIcon("list")
-					.onClick(async () => {
-						const prompts = this.settings.customPrompts || [];
-						if (prompts.length === 0) {
-							new Notice("No saved prompts yet. Add some in settings.");
-							return;
-						}
-						const selectedText = this.getSelectedText();
-						if (selectedText.length === 0) {
-							new Notice("Please select some text first");
-							return;
-						}
-						new SelectPromptModal(this.app, prompts, (chosen) => {
-							this.isKillSwitchActive = false;
-							new Notice("Running: " + chosen.title);
-							void processText(selectedText, chosen.prompt, this);
-						}).open();
-					})
+					.onClick(() => this.openSavedPromptPicker())
 			);
 
 			menu.addSeparator();
@@ -713,8 +573,8 @@ export default class OLocalLLMPlugin extends Plugin {
 			menu.showAtMouseEvent(event);
 		});
 
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("LLM Helper: Ready");
+		this.statusBarItemEl = this.addStatusBarItem();
+		this.statusBarItemEl.setText("LLM Helper: Ready");
 
 		this.addSettingTab(new OLLMSettingTab(this.app, this));
 	}
@@ -725,8 +585,8 @@ export default class OLocalLLMPlugin extends Plugin {
 		const embeddingModel = this.settings.embeddingModelName;
 		const embeddingServerAddress = getEffectiveEmbeddingServerAddress(this.settings);
 
-		console.log(`Configuration - Chat server: ${serverAddress}, Embedding server: ${embeddingServerAddress}, LLM: ${llmModel}, Embeddings: ${embeddingModel}`);
-		console.log('Using OpenAI-compatible API endpoints (/v1/chat/completions, /v1/embeddings)');
+		debugLog(`Configuration - Chat server: ${serverAddress}, Embedding server: ${embeddingServerAddress}, LLM: ${llmModel}, Embeddings: ${embeddingModel}`);
+		debugLog('Using OpenAI-compatible API endpoints (/v1/chat/completions, /v1/embeddings)');
 
 		if (!serverAddress || serverAddress.trim() === '') {
 			console.warn('Server address is not configured.');
@@ -736,16 +596,59 @@ export default class OLocalLLMPlugin extends Plugin {
 		return true;
 	}
 
+	private runTextAction(prompt: string, notice?: string) {
+		this.isKillSwitchActive = false;
+		const selectedText = this.getSelectedText();
+		if (selectedText.length === 0) {
+			new Notice("Please select some text first");
+			return;
+		}
+		if (notice) {
+			new Notice(notice);
+		}
+		void processText(selectedText, prompt, this);
+	}
+
+	private openPromptPicker() {
+		const selectedText = this.getSelectedText();
+		if (selectedText.length === 0) {
+			new Notice("Please select some text first");
+			return;
+		}
+		new PromptPickerModal(this.app, (prompt: string) => {
+			this.isKillSwitchActive = false;
+			void processText(selectedText, prompt, this);
+		}).open();
+	}
+
+	private openSavedPromptPicker() {
+		const prompts = this.settings.customPrompts || [];
+		if (prompts.length === 0) {
+			new Notice("No saved prompts yet. Add some in settings.");
+			return;
+		}
+		const selectedText = this.getSelectedText();
+		if (selectedText.length === 0) {
+			new Notice("Please select some text first");
+			return;
+		}
+		new SelectPromptModal(this.app, prompts, (chosen) => {
+			this.isKillSwitchActive = false;
+			new Notice("Running: " + chosen.title);
+			void processText(selectedText, chosen.prompt, this);
+		}).open();
+	}
+
 	private getSelectedText() {
-		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) {
 			new Notice("No active view");
 			return "";
 		} else {
-			let view_mode = view.getMode();
+			const view_mode = view.getMode();
 			switch (view_mode) {
 				case "preview":
-					new Notice("Does not work in preview preview");
+					new Notice("Does not work in preview mode");
 					return "";
 				case "source":
 					if ("editor" in view) {
@@ -882,6 +785,10 @@ export default class OLocalLLMPlugin extends Plugin {
 			window.clearTimeout(this.relatedNotesRefreshTimer);
 			this.relatedNotesRefreshTimer = null;
 		}
+		if (this.storageNotificationTimer !== null) {
+			window.clearTimeout(this.storageNotificationTimer);
+			this.storageNotificationTimer = null;
+		}
 		if (this.autoIndexTimer !== undefined) {
 			window.clearTimeout(this.autoIndexTimer);
 			this.autoIndexTimer = undefined;
@@ -1008,23 +915,37 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		console.log('📂 LLM Helper: Loading plugin settings...');
+		debugLog('📂 LLM Helper: Loading plugin settings...');
 		const savedData = await this.loadData();
-		console.log('💾 LLM Helper: Raw saved data:', savedData);
 
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			savedData
-		);
+		// Only pick keys declared in the settings interface. data.json may
+		// contain large legacy keys (pre-2.x embeddings blobs) that must not
+		// be merged into settings and rewritten on every save.
+		this.settings = { ...DEFAULT_SETTINGS };
+		if (savedData && typeof savedData === "object") {
+			for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof OLocalLLMSettings)[]) {
+				if (savedData[key] !== undefined) {
+					(this.settings as unknown as Record<string, unknown>)[key] = savedData[key];
+				}
+			}
+			const legacyKeys = Object.keys(savedData).filter(
+				(key) => !(key in DEFAULT_SETTINGS)
+			);
+			if (legacyKeys.length > 0) {
+				debugLog('🧹 LLM Helper: Removing legacy data.json keys:', legacyKeys);
+				await this.saveData(this.settings);
+				new Notice("LLM Helper: cleaned up stale data from plugin settings file.");
+			}
+		}
 		this.settings.workflowDefaults = mergeWorkflowDefaults(savedData?.workflowDefaults);
+		setDebugLogging(this.settings.showAgentDebug);
 
 		this.settings.serverAddress = normalizeServerAddress(this.settings.serverAddress);
 		this.settings.embeddingServerAddress = normalizeOptionalServerAddress(this.settings.embeddingServerAddress);
 		this.settings.searxngInstanceUrl = normalizeSearxngInstanceUrl(this.settings.searxngInstanceUrl || "");
 		this.rebuildPersonas();
 
-		console.log('✅ LLM Helper: Final settings after merge:', {
+		debugLog('✅ LLM Helper: Final settings after merge:', {
 			provider: this.settings.providerType,
 			server: this.settings.serverAddress,
 			embeddingServer: getEffectiveEmbeddingServerAddress(this.settings),
@@ -1038,6 +959,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	async saveSettings() {
+		setDebugLogging(this.settings.showAgentDebug);
 		await this.saveData(this.settings);
 
 		// Update RAG manager with new settings
@@ -1060,7 +982,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	registerSinglePromptCommand(customPrompt: CustomPrompt) {
-		const commandId = `ollm-helper:${customPrompt.id}`;
+		const commandId = `${this.manifest.id}:${customPrompt.id}`;
 		this.addCommand({
 			id: customPrompt.id,
 			name: `Prompt: ${customPrompt.title}`,
@@ -1079,7 +1001,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	unregisterPromptCommand(id: string) {
-		const commandId = `ollm-helper:${id}`;
+		const commandId = `${this.manifest.id}:${id}`;
 		(this.app as ObsidianCommandApp).commands.removeCommand(commandId);
 		this.registeredPromptCommands.delete(commandId);
 	}
@@ -1099,7 +1021,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	async indexNotes() {
 		if (this.isIndexing) {
 			new Notice('Indexing already in progress.');
-			console.log("LLM Helper: Skipping manual index, indexing already in progress.");
+			debugLog("LLM Helper: Skipping manual index, indexing already in progress.");
 			return;
 		}
 		this.isIndexing = true;
@@ -1107,7 +1029,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		try {
 			await this.ragManager.indexNotes(progress => {
 				// You can use the progress value here if needed
-				console.log(`Indexing progress: ${progress * 100}%`);
+				debugLog(`Indexing progress: ${progress * 100}%`);
 			});
 			new Notice('Notes indexed successfully!');
 			this.queueRelatedNotesRefresh(150);
@@ -1151,8 +1073,10 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	async handleDiagnostics() {
+		// User-invoked diagnostics command; the notice points to the console,
+		// so this must log unconditionally rather than through debugLog.
 		console.log('🔍 === RAG STORAGE DIAGNOSTICS ===');
-		
+
 		// Plugin settings diagnostics
 		console.log('📋 Plugin Settings:');
 		console.log('  Provider:', this.settings.providerType);
@@ -1160,7 +1084,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		console.log('  Embedding Server:', getEffectiveEmbeddingServerAddress(this.settings));
 		console.log('  Embedding Model:', this.settings.embeddingModelName);
 		console.log('  LLM Model:', this.settings.llmModel);
-		
+
 		// RAG storage diagnostics
 		try {
 			const stats = await this.ragManager.getStorageStats();
@@ -1173,30 +1097,35 @@ export default class OLocalLLMPlugin extends Plugin {
 			console.log('  Last Indexed:', stats.lastIndexed);
 			console.log('  Storage Used:', stats.storageUsed);
 			console.log('  Current Indexed Count:', this.ragManager.getIndexedFilesCount());
-			
+
 			new Notice(`RAG Diagnostics: ${stats.totalEmbeddings} embeddings, ${stats.indexedFiles} sources. Check console for details.`);
 		} catch (error) {
 			console.error('❌ Error getting storage stats:', error);
 			new Notice('Error getting storage stats. Check console for details.');
 		}
-		
+
 		// File system diagnostics
 		const totalFiles = this.app.vault.getFiles().length;
 		console.log('📁 Vault Stats:');
 		console.log('  Total Files:', totalFiles);
 		console.log('  Plugin Settings Path:', `${this.manifest.dir}/data.json`);
 		console.log('  Embeddings Storage Path:', `${this.manifest.dir}/embeddings.json`);
-		
+
 		console.log('🔍 === END DIAGNOSTICS ===');
 	}
 
 	async showStorageNotification() {
 		try {
-			const stats = await this.ragManager.getStorageStats();
-			if (stats.totalEmbeddings > 0) {
-				new Notice(`📚 Loaded ${stats.totalEmbeddings} embeddings from ${stats.indexedFiles} sources (${stats.storageUsed})`);
+			// Report the index that actually loaded into memory — disk stats
+			// can disagree when a saved index was rejected as incompatible
+			// with the current embedding settings.
+			const loadedEmbeddings = this.ragManager.getLoadedEmbeddingCount();
+			if (loadedEmbeddings > 0) {
+				const indexedFiles = this.ragManager.getIndexedFilesCount();
+				const stats = await this.ragManager.getStorageStats();
+				new Notice(`📚 Loaded ${loadedEmbeddings} embeddings from ${indexedFiles} sources (${stats.storageUsed})`);
 			} else {
-				new Notice('📝 No previous embeddings found - ready to index notes');
+				new Notice('📝 No usable note index loaded - ready to index notes');
 			}
 		} catch (error) {
 			console.error('Error showing storage notification:', error);
@@ -1456,14 +1385,14 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Temperature")
-			.setDesc("0 = deterministic, 1 = creative")
+			.setDesc("0 = deterministic, higher = more creative (max 2)")
 			.addText((text) =>
 				text
 					.setPlaceholder("0.7")
 					.setValue(this.plugin.settings.temperature.toString())
 					.onChange((value) => {
 						const parsedValue = parseFloat(value);
-						if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue <= 1) {
+						if (!isNaN(parsedValue) && parsedValue >= 0 && parsedValue <= 2) {
 							this.plugin.settings.temperature = parsedValue;
 							this.debouncedSave();
 						}
@@ -1479,7 +1408,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.maxTokens.toString())
 					.onChange((value) => {
 						const parsedValue = parseInt(value);
-						if (!isNaN(parsedValue) && parsedValue >= 0) {
+						if (!isNaN(parsedValue) && parsedValue >= 1) {
 							this.plugin.settings.maxTokens = parsedValue;
 							this.debouncedSave();
 						}
@@ -1556,6 +1485,10 @@ class OLLMSettingTab extends PluginSettingTab {
 					if (!prompt) { new Notice("Please enter a system prompt"); return; }
 					const key = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
 					if (!key) { new Notice("Invalid persona name"); return; }
+					if (key in DEFAULT_PERSONAS) {
+						new Notice(`"${name}" clashes with a built-in persona. Choose a different name (built-ins can be edited above).`);
+						return;
+					}
 					const saved = this.plugin.settings.savedPersonas || {};
 					saved[key] = { displayName: name, systemPrompt: prompt + "\n\n" };
 					this.plugin.settings.savedPersonas = saved;
@@ -1803,8 +1736,7 @@ class OLLMSettingTab extends PluginSettingTab {
 									sp.title = updated.title;
 									sp.prompt = updated.prompt;
 									sp.updatedAt = Date.now();
-									// Regenerate ID if title changed
-									sp.id = generatePromptId(updated.title);
+									// The ID stays stable; re-registering picks up the new title
 									this.plugin.refreshCustomPromptCommands();
 									await this.plugin.saveSettings();
 									new Notice("Prompt updated");
@@ -1850,7 +1782,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					if (!prompt) { new Notice("Please enter a prompt"); return; }
 					const now = Date.now();
 					const newPrompt: CustomPrompt = {
-						id: generatePromptId(title),
+						id: generatePromptId(title, now),
 						title,
 						prompt,
 						createdAt: now,
@@ -2184,7 +2116,7 @@ class OLLMSettingTab extends PluginSettingTab {
 		const checkAndUpdate = () => {
 			if (this.plugin.ragManager && this.plugin.ragManager.isInitialized()) {
 				this.updateIndexedFilesCount();
-				console.log('📊 Settings: Updated indexed files count to', this.plugin.ragManager.getIndexedFilesCount());
+				debugLog('📊 Settings: Updated indexed files count to', this.plugin.ragManager.getIndexedFilesCount());
 			} else {
 				// Check again in 100ms
 				window.setTimeout(checkAndUpdate, 100);
@@ -2317,22 +2249,19 @@ async function processText(
 	plugin.isKillSwitchActive = false;
 
 	new Notice("Generating response. This takes a few seconds..");
-	const statusBarItemEl = activeDocument.querySelector(
-		".status-bar .status-bar-item"
-	);
-	if (statusBarItemEl) {
-		statusBarItemEl.textContent = "LLM Helper: Generating response...";
-	} else {
-		console.error("Status bar item element not found");
-	}
+	plugin.statusBarItemEl?.setText("LLM Helper: Generating response...");
 
-	let prompt = modifyPrompt(iprompt, plugin.settings.personas, plugin.personasDict);
+	const prompt = modifyPrompt(iprompt, plugin.settings.personas, plugin.personasDict);
+
+	const historyEntries = plugin.settings.maxConvHistory > 0
+		? plugin.conversationHistory.slice(-plugin.settings.maxConvHistory)
+		: [];
 
 	const body = {
 		model: plugin.settings.llmModel,
 		messages: [
 			{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
-			...plugin.conversationHistory.slice(-plugin.settings.maxConvHistory).reduce((acc, entry) => {
+			...historyEntries.reduce((acc, entry) => {
 				acc.push({ role: "user", content: entry.prompt });
 				acc.push({ role: "assistant", content: entry.response });
 				return acc;
@@ -2345,87 +2274,56 @@ async function processText(
 	};
 
 	try {
-		if (plugin.settings.outputMode === "append") {
-			modifySelectedText(selectedText + "\n\n", plugin);
+		const response = await requestUrl({
+			url: getChatCompletionsUrl(plugin.settings),
+			method: "POST",
+			headers: buildChatHeaders(plugin),
+			body: JSON.stringify(body),
+		});
+
+		if (response.status < 200 || response.status >= 300) {
+			if (response.status === 401) {
+				throw new Error("Authentication failed (401). Check your API key in plugin settings.");
+			}
+			throw new Error(
+				"Error generating text (requestUrl): " + response.text
+			);
 		}
-		if (plugin.settings.responseFormatting === true) {
-			modifySelectedText(plugin.settings.responseFormatPrepend, plugin);
-		}
+
+		let responseStr: string;
 		if (plugin.settings.stream) {
-			const response = await requestUrl({
-				url: getChatCompletionsUrl(plugin.settings),
-				method: "POST",
-				headers: buildChatHeaders(plugin),
-				body: JSON.stringify(body),
-			});
-
-			if (response.status < 200 || response.status >= 300) {
-				if (response.status === 401) {
-					throw new Error("Authentication failed (401). Check your API key in plugin settings.");
-				}
-				throw new Error(
-					"Error summarizing text (requestUrl): " + response.text
-				);
-			}
-
-			let responseStr = parseStreamedChatCompletion(response.text);
-			if (plugin.settings.extractReasoningResponses) {
-				const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
-				responseStr = extractActualResponse(responseStr, markers);
-			}
-			updateConversationHistory(prompt + ": " + selectedText, responseStr, plugin.conversationHistory, plugin.settings.maxConvHistory);
-			if (!plugin.isKillSwitchActive) {
-				modifySelectedText(responseStr, plugin);
-				if (plugin.settings.responseFormatting === true) {
-					modifySelectedText(plugin.settings.responseFormatAppend, plugin);
-				}
-				new Notice("Text generation complete. Voila!");
-			} else {
-				new Notice("Text generation stopped by kill switch");
-				plugin.isKillSwitchActive = false;
-			}
+			responseStr = parseStreamedChatCompletion(response.text);
 		} else {
-			const response = await requestUrl({
-				url: getChatCompletionsUrl(plugin.settings),
-				method: "POST",
-				headers: buildChatHeaders(plugin),
-				body: JSON.stringify(body),
-			});
-
-			const statusCode = response.status;
-
-			if (statusCode >= 200 && statusCode < 300) {
-				const data = response.json as ChatCompletionResponse;
-				let summarizedText = data.choices[0].message.content;
-
-				// Use explicit reasoning field if available
-				if (data.choices[0].message.reasoning) {
-					summarizedText = data.choices[0].message.content;
-				}
-
-				// Strip reasoning markers if enabled
-				if (plugin.settings.extractReasoningResponses) {
-					const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
-					summarizedText = extractActualResponse(summarizedText, markers);
-				}
-
-				updateConversationHistory(prompt + ": " + selectedText, summarizedText, plugin.conversationHistory, plugin.settings.maxConvHistory);
-				new Notice("Text generated. Voila!");
-				if (!plugin.isKillSwitchActive) {
-					if (plugin.settings.responseFormatting === true) {
-						modifySelectedText(summarizedText + plugin.settings.responseFormatAppend, plugin);
-					} else {
-						modifySelectedText(summarizedText, plugin);
-					}
-				} else {
-					new Notice("Text generation stopped by kill switch");
-					plugin.isKillSwitchActive = false; // Reset the kill switch
-				}
-			} else {
-				throw new Error(
-					"Error summarizing text (requestUrl): " + response.text
-				);
+			const data = response.json as ChatCompletionResponse;
+			const content = data?.choices?.[0]?.message?.content;
+			if (typeof content !== "string") {
+				throw new Error("Unexpected server response — no completion content returned.");
 			}
+			responseStr = content;
+		}
+
+		if (plugin.settings.extractReasoningResponses) {
+			const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
+			responseStr = extractActualResponse(responseStr, markers);
+		}
+
+		recordConversationHistory(plugin.conversationHistory, prompt + ": " + selectedText, responseStr, plugin.settings.maxConvHistory);
+
+		if (!plugin.isKillSwitchActive) {
+			// Build the full output and insert it in one operation, so a
+			// failed request can never leave dangling format markers behind
+			let output = responseStr;
+			if (plugin.settings.responseFormatting === true) {
+				output = plugin.settings.responseFormatPrepend + output + plugin.settings.responseFormatAppend;
+			}
+			if (plugin.settings.outputMode === "append") {
+				output = selectedText + "\n\n" + output;
+			}
+			modifySelectedText(output, plugin);
+			new Notice("Text generation complete. Voila!");
+		} else {
+			new Notice("Text generation stopped by kill switch");
+			plugin.isKillSwitchActive = false;
 		}
 	} catch (error) {
 		console.error("Error during request:", error);
@@ -2436,22 +2334,18 @@ async function processText(
 			new Notice("Error generating text. Check plugin console for details.");
 		}
 	}
-	if (statusBarItemEl) {
-		statusBarItemEl.textContent = "LLM Helper: Ready";
-	} else {
-		console.error("Status bar item element not found");
-	}
+	plugin.statusBarItemEl?.setText("LLM Helper: Ready");
 }
 
 function modifySelectedText(text: string, plugin: OLocalLLMPlugin) {
-	let view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+	const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) {
 		new Notice("No active view");
 	} else {
-		let view_mode = view.getMode();
+		const view_mode = view.getMode();
 		switch (view_mode) {
 			case "preview":
-				new Notice("Cannot summarize in preview");
+				new Notice("Cannot edit in preview mode");
 				break;
 			case "source":
 				if ("editor" in view) {
@@ -2663,16 +2557,6 @@ function scrollToBottom(el: HTMLElement) {
 	}
 }
 
-function updateConversationHistory(prompt: string, response: string, conversationHistory: ConversationEntry[], maxConvHistoryLength: number) {
-	conversationHistory.push({ prompt, response });
-
-	// Limit history length to maxConvHistoryLength
-	if (conversationHistory.length > maxConvHistoryLength) {
-		conversationHistory.shift();
-	}
-}
-
-
 class EditPromptModal extends Modal {
 	private prompt: CustomPrompt;
 	private onSave: (updated: { title: string; prompt: string }) => void;
@@ -2756,7 +2640,10 @@ async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugi
 		throw new Error("Tavily search failed: " + response.status);
 	}
 
-	const results = (response.json as TavilySearchResponse).results;
+	const results = (response.json as TavilySearchResponse)?.results;
+	if (!Array.isArray(results)) {
+		throw new Error("Tavily search returned an unexpected response format.");
+	}
 	return results.map((result) =>
 		`${result.title}\n${result.content}\nSource: ${result.url}\n\n`
 	).join('');
@@ -2828,19 +2715,26 @@ async function searxngSearch(query: string, topic: string, plugin: OLocalLLMPlug
 	return context;
 }
 
+function validateSearchProvider(settings: OLocalLLMSettings): string | null {
+	const provider = settings.searchProvider;
+	if (provider === "tavily" && !settings.tavilyApiKey) {
+		return "Please set your Tavily API key in settings";
+	}
+	if (provider === "brave" && !settings.braveSearchApiKey) {
+		return "Please set your Brave Search API key in settings";
+	}
+	if (provider === "searxng" && !settings.searxngInstanceUrl) {
+		return "Please set your SearXNG instance URL in settings";
+	}
+	return null;
+}
+
 async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 	const provider = plugin.settings.searchProvider;
 
-	if (provider === "tavily" && !plugin.settings.tavilyApiKey) {
-		new Notice("Please set your Tavily API key in settings");
-		return;
-	}
-	if (provider === "brave" && !plugin.settings.braveSearchApiKey) {
-		new Notice("Please set your Brave Search API key in settings");
-		return;
-	}
-	if (provider === "searxng" && !plugin.settings.searxngInstanceUrl) {
-		new Notice("Please set your SearXNG instance URL in settings");
+	const providerError = validateSearchProvider(plugin.settings);
+	if (providerError) {
+		new Notice(providerError);
 		return;
 	}
 
@@ -2868,9 +2762,12 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 				throw new Error("Search failed: " + response.status);
 			}
 
-			const searchResults = (response.json as { web: { results: BraveWebResult[] } }).web.results;
+			const searchResults = (response.json as { web?: { results?: BraveWebResult[] } })?.web?.results;
+			if (!Array.isArray(searchResults)) {
+				throw new Error("Brave search returned an unexpected response format.");
+			}
 			context = searchResults.map((result) => {
-				let snippets = result.extra_snippets ?
+				const snippets = result.extra_snippets ?
 					'\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
 				return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
 			}).join('');
@@ -2891,16 +2788,9 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 	const provider = plugin.settings.searchProvider;
 
-	if (provider === "tavily" && !plugin.settings.tavilyApiKey) {
-		new Notice("Please set your Tavily API key in settings");
-		return;
-	}
-	if (provider === "brave" && !plugin.settings.braveSearchApiKey) {
-		new Notice("Please set your Brave Search API key in settings");
-		return;
-	}
-	if (provider === "searxng" && !plugin.settings.searxngInstanceUrl) {
-		new Notice("Please set your SearXNG instance URL in settings");
+	const providerError = validateSearchProvider(plugin.settings);
+	if (providerError) {
+		new Notice(providerError);
 		return;
 	}
 
@@ -2928,7 +2818,10 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 				throw new Error("News search failed: " + response.status);
 			}
 
-			const newsResults = (response.json as { results: BraveNewsResult[] }).results;
+			const newsResults = (response.json as { results?: BraveNewsResult[] })?.results;
+			if (!Array.isArray(newsResults)) {
+				throw new Error("Brave news search returned an unexpected response format.");
+			}
 			context = newsResults.map((result) =>
 				`${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
 			).join('');

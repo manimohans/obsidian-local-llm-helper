@@ -1,4 +1,4 @@
-import { TFile, Vault, Plugin, requestUrl } from "obsidian";
+import { Notice, TFile, Vault, Plugin, requestUrl } from "obsidian";
 import { OpenAIEmbeddings } from "./openAIEmbeddings";
 import type { OLocalLLMSettings } from "../main";
 import {
@@ -14,6 +14,7 @@ import {
 	getEffectiveEmbeddingBaseUrl,
 	getEffectiveEmbeddingServerAddress,
 } from "./providerSettings";
+import { debugLog } from "./debug";
 
 interface IndexedDocument {
 	pageContent: string;
@@ -170,15 +171,15 @@ export class RAGManager {
 	async initialize(): Promise<void> {
 		if (this.isLoaded) return;
 
-		console.log("🔄 RAGManager: Starting initialization...");
+		debugLog("🔄 RAGManager: Starting initialization...");
 
 		try {
 			await this.loadEmbeddings();
 			this.isLoaded = true;
-			console.log("✅ RAGManager initialized");
+			debugLog("✅ RAGManager initialized");
 		} catch (error) {
 			console.error("❌ Failed to load embeddings:", error);
-			this.isLoaded = true;
+			// Leave isLoaded false so a later initialize() can retry.
 		}
 	}
 
@@ -199,8 +200,17 @@ export class RAGManager {
 		this.embeddings = this.createEmbeddingsClient(settings);
 		this.vectorStore.setEmbedder(this.embeddings);
 
-		if (modelChanged || serverChanged || attachmentSettingsChanged) {
-			console.log("⚠️ RAGManager: Index settings changed. Re-index recommended for best results.");
+		if (modelChanged || serverChanged) {
+			// Vectors from a different model/server may have a different
+			// dimensionality; keeping them silently breaks every search.
+			// Reload from disk: if the saved index matches the new settings
+			// (e.g. the user reverted a change) it is restored; otherwise
+			// loadEmbeddings warns that a re-index is needed.
+			this.vectorStore = new InMemoryVectorStore(this.embeddings);
+			this.fileIndex.clear();
+			void this.loadEmbeddings();
+		} else if (attachmentSettingsChanged) {
+			debugLog("⚠️ RAGManager: Index settings changed. Re-index recommended for best results.");
 		}
 	}
 
@@ -323,6 +333,7 @@ ${context}`;
 				score: this.cosineSimilarity(queryEmbedding, entry.vector),
 				doc: entry.doc
 			}))
+			.filter(item => item.score > 0)
 			.sort((a, b) => b.score - a.score)
 			.slice(0, this.settings.ragTopK)
 			.map(item => item.doc);
@@ -462,19 +473,19 @@ ${context}`;
 		await this.initialize();
 		await this.waitForVaultReady();
 
-		console.log("📚 Starting indexing process...");
+		debugLog("📚 Starting indexing process...");
 
 		const allFiles = this.getIndexableFiles();
 		const totalFiles = allFiles.length;
 
 		if (totalFiles === 0) {
-			console.log("No eligible sources found in vault.");
+			debugLog("No eligible sources found in vault.");
 			return;
 		}
 
 		const { toIndex, toRemove, unchanged } = await this.getFilesToProcess(allFiles);
 
-		console.log(`📊 Index status: ${toIndex.length} new/modified, ${toRemove.length} deleted, ${unchanged.length} unchanged`);
+		debugLog(`📊 Index status: ${toIndex.length} new/modified, ${toRemove.length} deleted, ${unchanged.length} unchanged`);
 
 		for (const path of toRemove) {
 			this.removeFileFromIndex(path);
@@ -487,17 +498,20 @@ ${context}`;
 			try {
 				await this.indexFile(file);
 				processed++;
-				progressCallback(totalToProcess === 0 ? 0.95 : (processed / totalToProcess) * 0.9 + 0.1);
+				progressCallback((processed / totalToProcess) * 0.9 + 0.1);
 			} catch (error) {
 				console.error(`Error indexing ${file.path}:`, error);
 			}
 		}
 
 		progressCallback(0.95);
-		await this.saveEmbeddings();
+		// Skip the full-index rewrite when nothing changed
+		if (toIndex.length > 0 || toRemove.length > 0) {
+			await this.saveEmbeddings();
+		}
 		progressCallback(1);
 
-		console.log(`✅ Indexing complete. ${this.fileIndex.size} files indexed.`);
+		debugLog(`✅ Indexing complete. ${this.fileIndex.size} files indexed.`);
 	}
 
 	private getIndexableFiles(): TFile[] {
@@ -567,7 +581,7 @@ ${context}`;
 		const extractedChunks = await this.attachmentExtractor.extractAttachment(file);
 		this.removeFileFromIndex(file.path);
 		if (extractedChunks.length === 0) {
-			console.log(`⏭️ Skipping ${file.path} (no extractable attachment text)`);
+			debugLog(`⏭️ Skipping ${file.path} (no extractable attachment text)`);
 			return;
 		}
 
@@ -608,14 +622,14 @@ ${context}`;
 			chunks: docs.length,
 			sourceType,
 		});
-		console.log(`✅ Indexed ${file.path} (${docs.length} chunks)`);
+		debugLog(`✅ Indexed ${file.path} (${docs.length} chunks)`);
 	}
 
 	private async indexMarkdownFile(file: TFile): Promise<void> {
 		const content = await this.vault.cachedRead(file);
 		const cleanedContent = this.preprocessMarkdownContent(content);
 		if (cleanedContent.length < MIN_CONTENT_LENGTH) {
-			console.log(`⏭️ Skipping ${file.path} (content too short)`);
+			debugLog(`⏭️ Skipping ${file.path} (content too short)`);
 			return;
 		}
 
@@ -647,7 +661,7 @@ ${context}`;
 			chunks: chunks.length,
 			sourceType: "markdown",
 		});
-		console.log(`✅ Indexed ${file.path} (${chunks.length} chunks)`);
+		debugLog(`✅ Indexed ${file.path} (${chunks.length} chunks)`);
 	}
 
 	private assignChunkTotals(docs: IndexedDocument[]): void {
@@ -666,8 +680,11 @@ ${context}`;
 	private preprocessMarkdownContent(content: string): string {
 		let processed = content;
 
-		// Remove YAML frontmatter
-		processed = processed.replace(/^---[\s\S]*?---\n*/m, '');
+		// Remove YAML frontmatter (only at the very start of the file —
+		// `---` elsewhere is a horizontal rule, not frontmatter)
+		if (processed.startsWith('---\n') || processed.startsWith('---\r\n')) {
+			processed = processed.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n*/, '');
+		}
 
 		// Remove code blocks (keep the description if any)
 		processed = processed.replace(/```[\s\S]*?```/g, '');
@@ -745,10 +762,7 @@ ${context}`;
 
 			// If adding this paragraph exceeds chunk size
 			if (currentChunk.length + trimmedPara.length + 2 > CHUNK_SIZE) {
-				// Save current chunk if it has content
-				if (currentChunk.length >= MIN_CONTENT_LENGTH) {
-					chunks.push(currentChunk.trim());
-				}
+				this.appendChunk(chunks, currentChunk);
 
 				// If paragraph itself is too long, split by sentences
 				if (trimmedPara.length > CHUNK_SIZE) {
@@ -766,11 +780,23 @@ ${context}`;
 		}
 
 		// Don't forget the last chunk
-		if (currentChunk.length >= MIN_CONTENT_LENGTH) {
-			chunks.push(currentChunk.trim());
-		}
+		this.appendChunk(chunks, currentChunk);
 
 		return chunks;
+	}
+
+	/**
+	 * Add a chunk to the list. Content shorter than MIN_CONTENT_LENGTH is
+	 * merged into the previous chunk instead of being silently dropped.
+	 */
+	private appendChunk(chunks: string[], chunk: string): void {
+		const trimmed = chunk.trim();
+		if (!trimmed) return;
+		if (trimmed.length < MIN_CONTENT_LENGTH && chunks.length > 0) {
+			chunks[chunks.length - 1] += '\n\n' + trimmed;
+			return;
+		}
+		chunks.push(trimmed);
 	}
 
 	private splitLongText(text: string): string[] {
@@ -780,10 +806,23 @@ ${context}`;
 		let currentChunk = '';
 
 		for (const sentence of sentences) {
-			if (currentChunk.length + sentence.length + 1 > CHUNK_SIZE) {
-				if (currentChunk.length >= MIN_CONTENT_LENGTH) {
-					chunks.push(currentChunk.trim());
+			// A single "sentence" longer than CHUNK_SIZE (long URLs, tables,
+			// text without terminators) must be hard-split by character window
+			// or it would blow past the embedding model's input limit.
+			if (sentence.length > CHUNK_SIZE) {
+				this.appendChunk(chunks, currentChunk);
+				const step = CHUNK_SIZE - CHUNK_OVERLAP;
+				let start = 0;
+				for (; start + CHUNK_SIZE < sentence.length; start += step) {
+					this.appendChunk(chunks, sentence.substring(start, start + CHUNK_SIZE));
 				}
+				// Keep the tail as the running chunk so following sentences attach to it
+				currentChunk = sentence.substring(start);
+				continue;
+			}
+
+			if (currentChunk.length + sentence.length + 1 > CHUNK_SIZE) {
+				this.appendChunk(chunks, currentChunk);
 				const overlap = this.getOverlapText(currentChunk);
 				currentChunk = overlap + sentence;
 			} else {
@@ -791,9 +830,7 @@ ${context}`;
 			}
 		}
 
-		if (currentChunk.length >= MIN_CONTENT_LENGTH) {
-			chunks.push(currentChunk.trim());
-		}
+		this.appendChunk(chunks, currentChunk);
 
 		return chunks;
 	}
@@ -807,16 +844,17 @@ ${context}`;
 			return '';
 		}
 
-		// Get last N characters, but try to break at word boundary
+		// Get last N characters, breaking at a word boundary so the overlap
+		// never starts mid-word
 		const overlapStart = text.length - CHUNK_OVERLAP;
 		const overlap = text.substring(overlapStart);
 
-		// Find first space to get complete words
 		const firstSpace = overlap.indexOf(' ');
-		if (firstSpace > 0 && firstSpace < CHUNK_OVERLAP / 2) {
+		if (firstSpace >= 0) {
 			return overlap.substring(firstSpace + 1) + ' ';
 		}
 
+		// No space at all (one long word) — use it as-is
 		return overlap + ' ';
 	}
 
@@ -904,6 +942,10 @@ ${context}`;
 		return this.fileIndex.size;
 	}
 
+	getLoadedEmbeddingCount(): number {
+		return this.vectorStore.entries.length;
+	}
+
 	getEligibleSourceCount(): number {
 		return this.getIndexableFiles().length;
 	}
@@ -914,7 +956,7 @@ ${context}`;
 
 	async saveEmbeddings(): Promise<void> {
 		try {
-			console.log('💾 Saving embeddings...');
+			debugLog('💾 Saving embeddings...');
 
 			const storedEmbeddings: StoredEmbedding[] = this.vectorStore.entries.map(entry => ({
 				id: `${entry.doc.metadata.source || 'unknown'}_${entry.doc.metadata.chunk || 0}`,
@@ -941,9 +983,15 @@ ${context}`;
 
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
-			await adapter.write(embeddingPath, JSON.stringify(embeddingData));
+			// Write to a temp file first so a crash mid-write can't corrupt the index
+			const tmpPath = `${embeddingPath}.tmp`;
+			await adapter.write(tmpPath, JSON.stringify(embeddingData));
+			if (await adapter.exists(embeddingPath)) {
+				await adapter.remove(embeddingPath);
+			}
+			await adapter.rename(tmpPath, embeddingPath);
 
-			console.log(`✅ Saved ${storedEmbeddings.length} embeddings from ${this.fileIndex.size} files`);
+			debugLog(`✅ Saved ${storedEmbeddings.length} embeddings from ${this.fileIndex.size} files`);
 		} catch (error) {
 			console.error('Failed to save embeddings:', error);
 			throw error;
@@ -960,17 +1008,25 @@ ${context}`;
 				const embeddingJson = await adapter.read(embeddingPath);
 				data = JSON.parse(embeddingJson);
 			} catch {
-				console.log("📂 No existing embeddings found");
+				debugLog("📂 No existing embeddings found");
 				return;
 			}
 
 			if (!data?.embeddings?.length) {
-				console.log("📂 Empty embeddings file");
+				debugLog("📂 Empty embeddings file");
 				return;
 			}
 
+			if (this.embeddingSourceChanged(data.settings)) {
+				// Vectors from a different model/server can't be compared with
+				// query embeddings — loading them would silently break search.
+				new Notice(
+					"LLM Helper: saved note index was built with a different embedding model or server. Please re-index your notes."
+				);
+				return;
+			}
 			if (this.shouldRebuildIndex(data.settings)) {
-				console.log("⚠️ Embedding settings changed. Re-indexing recommended.");
+				debugLog("⚠️ Embedding settings changed. Re-indexing recommended.");
 			}
 
 			this.vectorStore = new InMemoryVectorStore(this.embeddings);
@@ -1000,11 +1056,22 @@ ${context}`;
 				}
 			}
 
-			console.log(`✅ Loaded ${data.embeddings.length} embeddings from ${this.fileIndex.size} files`);
+			debugLog(`✅ Loaded ${data.embeddings.length} embeddings from ${this.fileIndex.size} files`);
 
 		} catch (error) {
 			console.error('Failed to load embeddings:', error);
 		}
+	}
+
+	private embeddingSourceChanged(savedSettings?: EmbeddingData["settings"]): boolean {
+		// Legacy embedding files predate the settings metadata — load them
+		// optimistically rather than forcing a re-index.
+		if (!savedSettings) return false;
+		const savedEmbeddingServer = savedSettings.embeddingServerAddress || savedSettings.serverAddress || "";
+		return (
+			savedSettings.model !== this.embeddingConfig.model ||
+			savedEmbeddingServer !== this.embeddingConfig.serverAddress
+		);
 	}
 
 	private shouldRebuildIndex(savedSettings?: EmbeddingData["settings"]): boolean {
@@ -1096,7 +1163,7 @@ ${context}`;
 			this.cachedEmbeddings.clear();
 			this.vectorStore.clear();
 
-			console.log('✅ Cleared all embeddings');
+			debugLog('✅ Cleared all embeddings');
 		} catch (error) {
 			console.error('Failed to clear embeddings:', error);
 		}

@@ -10,14 +10,17 @@ export interface CustomPrompt {
 }
 
 /**
- * Generates a safe command ID from a prompt title.
- * e.g. "My Cool Prompt" → "custom-prompt-my-cool-prompt"
+ * Generates a safe, unique command ID from a prompt title.
+ * e.g. "My Cool Prompt" → "custom-prompt-my-cool-prompt-abc123"
+ * The seed (the prompt's createdAt) keeps the ID unique across prompts with
+ * identical titles and stable for the lifetime of the prompt.
  */
-export function generatePromptId(title: string): string {
-	return "custom-prompt-" + title
+export function generatePromptId(title: string, seed: number): string {
+	const slug = title
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-|-$/g, "");
+		.replace(/^-|-$/g, "") || "untitled";
+	return `custom-prompt-${slug}-${seed.toString(36)}`;
 }
 
 /**

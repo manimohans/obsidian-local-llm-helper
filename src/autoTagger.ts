@@ -12,13 +12,16 @@ export async function generateAndAppendTags(app: App, settings: OLocalLLMSetting
 	const editor = view.editor;
 	const selectedText = editor.getSelection();
 	const fullText = editor.getValue();
-	const cursorPosition = editor.getCursor();
 
 	const textToProcess = selectedText || fullText;
 
 	try {
 		const tags = await generateTags(textToProcess, settings);
-		appendTags(editor, tags, cursorPosition);
+		if (tags.length === 0) {
+			new Notice("No valid tags were generated. Try again or adjust the text.");
+			return;
+		}
+		appendTags(editor, tags);
 		new Notice("Tags generated and appended");
 	} catch (error) {
 		console.error("Error generating tags:", error);
@@ -43,22 +46,30 @@ async function generateTags(text: string, settings: OLocalLLMSettings): Promise<
 		url: getChatCompletionsUrl(settings),
 		method: "POST",
 		headers: buildOpenAIHeaders(getChatApiKey(settings)),
-		body: JSON.stringify(body)
+		body: JSON.stringify(body),
+		throw: false
 	});
 
-	if (response.status !== 200) {
+	if (response.status < 200 || response.status >= 300) {
 		throw new Error(`Error from LLM server: ${response.status} ${response.text}`);
 	}
 
-	const data = await response.json;
-	const generatedTags = data.choices[0].message.content.trim().split(/\s+/);
+	const data = response.json;
+	const content = data?.choices?.[0]?.message?.content;
+	if (typeof content !== "string") {
+		throw new Error("Unexpected server response — no completion content returned.");
+	}
+	const generatedTags = content.trim().split(/\s+/);
+	// Obsidian tags allow letters (incl. unicode), digits, -, _, and / for nesting
 	return generatedTags
-		.filter((tag: string) => /^#?[a-zA-Z0-9]+$/.test(tag))
+		.filter((tag: string) => /^#?[\p{L}\p{N}_][\p{L}\p{N}_/-]*$/u.test(tag))
 		.map((tag: string) => tag.startsWith('#') ? tag : `#${tag}`)
 		.slice(0, 5);
 }
 
-function appendTags(editor: Editor, tags: string[], cursorPosition: EditorPosition) {
-	const tagsString = '\n\n' + tags.join(' ');
-	editor.replaceRange(tagsString, cursorPosition);
+function appendTags(editor: Editor, tags: string[]) {
+	if (tags.length === 0) return;
+	const lastLine = editor.lastLine();
+	const endOfNote: EditorPosition = { line: lastLine, ch: editor.getLine(lastLine).length };
+	editor.replaceRange('\n\n' + tags.join(' '), endOfNote);
 }

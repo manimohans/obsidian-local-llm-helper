@@ -267,6 +267,18 @@ Notes:
 
 ## Changelog
 
+### v2.4.8
+
+**Reliability and Diagnostics**
+- Hardened RAG index loading, persistence, chunking, similarity filtering, and embedding retries.
+- Added clearer validation and error handling for auto-tagging, model discovery, web search, and embedding responses.
+- Prevented duplicate RAG chat submissions and cleaned up plugin timers and status elements on unload.
+- Routed routine console output through the existing debug setting while keeping diagnostics, warnings, and errors visible.
+
+**Text and Prompt Workflows**
+- Unified text actions across commands and the ribbon menu, including consistent streamed and non-streamed replacements.
+- Preserved saved prompt IDs when editing and prevented custom prompt command collisions.
+
 ### v2.4.7
 
 **Chat Rendering**

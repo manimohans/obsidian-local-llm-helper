@@ -29,11 +29,13 @@
 
 <p align="center">
   <img src="assets/vault-radar.png" width="920" alt="Vault Radar beside a cited source note in Obsidian">
+  <br>
+  <sub>Vault Radar turns changed notes into a small, cited brief. Captured in a synthetic demo vault with file navigation hidden.</sub>
 </p>
 
-## Not another chat box
+## From questions to signals
 
-Most AI note tools wait for the perfect prompt. Local LLM Helper can also surface what your recent notes imply:
+Chat is useful when you know what to ask. Vault Radar adds another loop: it turns recently changed notes into a small, cited brief you can inspect without composing a prompt. It can surface:
 
 - a commitment that is about to slip;
 - a project blocked by an unresolved decision;
@@ -53,26 +55,59 @@ That is **Vault Radar**. Every card cites the exact Markdown notes behind it. Op
 | **Review workflows** | Draft weekly reviews, meeting tasks, and project updates from indexed context. Every write still requires approval. |
 | **Bring your own model** | Use Ollama, LM Studio, vLLM, LocalAI, OpenAI, or another server with OpenAI-compatible endpoints. |
 
+## How it works
+
+Local LLM Helper runs inside Obsidian. It sends only the context needed for the feature you invoke, then keeps its semantic index and plugin state locally in your vault.
+
+```mermaid
+flowchart LR
+    subgraph Device["Your device"]
+        V["Markdown vault"] --> P["Local LLM Helper"]
+        P --> R["Radar excerpts + direct prompts"]
+        P --> N["Note chunks"]
+        P --> T["Question, active note, or selection"]
+        X["Local vector index"] --> S["Local similarity search"]
+        Y["Query vector"] --> S
+        S --> Q["Scoped prompt + retrieved context"]
+        O["Cited answers, cards, and drafts"] --> U["Open sources or approve writes"]
+    end
+
+    subgraph Endpoints["Endpoints you configure"]
+        C["Chat endpoint"]
+        E["Embedding endpoint"]
+    end
+
+    R --> C
+    Q --> C
+    N -->|index| E
+    E -->|document vectors| X
+    T -->|retrieve| E
+    E -->|query vector| Y
+    C --> O
+```
+
+There is no Local LLM Helper cloud service: requests go only to chat and embedding endpoints you configure, plus a search provider you explicitly select when you run web search.
+
 ## Vault Radar: from signal to evidence
 
 Radar reads a bounded set of recently changed Markdown notes and asks your configured chat model for high-signal, source-grounded cards.
 
-```text
-changed notes
-    ↓ bounded excerpts
-your configured /v1/chat/completions endpoint
-    ↓ grounded JSON
-cited insight cards
-    ├─ open the exact note
-    ├─ chat with those sources
-    ├─ Helpful / Wrong
-    └─ Snooze / Dismiss
+```mermaid
+flowchart LR
+    A["Changed Markdown notes"] --> B["Bounded excerpts"]
+    B --> C["Configured chat endpoint"]
+    C --> D["Grounded cards<br/>with source IDs"]
+    D --> E["Open exact sources"]
+    D --> F["Chat with those sources"]
+    D --> G["Helpful / Wrong<br/>Snooze / Dismiss"]
 ```
 
 After the first successful scan, Radar is incremental: unchanged notes are not repeatedly sent. A resilient local state file remembers scan versions, citations, feedback, snoozes, and dismissals. Large-vault state and prompt size are both bounded.
 
 <p align="center">
-  <img src="assets/source-scoped-chat.png" width="360" alt="Notes chat pinned to two Vault Radar sources">
+  <img src="assets/source-scoped-chat.png" width="920" alt="Notes chat pinned to two Vault Radar sources with citations">
+  <br>
+  <sub>Source-scoped chat stays pinned to the two Radar sources and returns clickable citations. Captured in a synthetic demo vault.</sub>
 </p>
 
 ## Quick start with Ollama
@@ -122,7 +157,7 @@ The plugin uses the OpenAI-compatible API format rather than a provider-specific
 
 Chat and embeddings may use different server URLs and API keys. This is useful when, for example, a local Ollama instance handles chat while a separate OpenAI-compatible service handles embeddings.
 
-Tested provider paths include Ollama and the shared OpenAI-compatible request contract. Compatibility fallbacks handle servers that do not implement JSON response mode, while timeouts, retries, response validation, and user-facing errors are centralized in one client.
+Ollama has been smoke-tested end to end. The shared OpenAI-compatible request contract, JSON-mode fallback, timeouts, retries, response validation, and user-facing errors are unit-tested through injected transports and centralized in one client.
 
 ## What leaves your vault
 
@@ -134,7 +169,7 @@ Local LLM Helper has no telemetry and no hosted backend of its own. Data goes on
 | Chat and text actions | Your prompt, selection, active-note context, or chosen note scope | When you submit a request |
 | RAG indexing | Note chunks and supported attachment text | When indexing runs |
 | RAG and Related Notes retrieval | Your question, active-note text, or selected text | When semantic retrieval queries the embedding endpoint |
-| Web search | Your search query | Only when using the configured search provider |
+| Web search | Your query goes to the selected search provider; the query and returned titles/snippets then go to your configured chat endpoint for synthesis | Only when you run web search |
 
 Endpoints can be local or remote. A local URL does not automatically make a remote model private, and a remote URL can send note content off-device. Review [Privacy and Capabilities](PRIVACY.md) before enabling background features.
 

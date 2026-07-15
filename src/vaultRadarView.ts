@@ -195,6 +195,26 @@ export class VaultRadarView extends ItemView {
 		}
 
 		const feedback = cardEl.createDiv({ cls: "llm-helper-radar-feedback" });
+		const map = feedback.createEl("button", {
+			text: "Map it",
+			cls: "mod-cta",
+			attr: {
+				type: "button",
+				title: "Create a local Obsidian Canvas from this insight",
+			},
+		});
+		map.disabled = disabled;
+		map.addEventListener("click", () => {
+			map.disabled = true;
+			this.plugin.openInsightCanvasModal(card, (state) => {
+				if (map.isConnected) {
+					map.disabled = state.open
+						|| state.creating
+						|| this.plugin.getVaultRadarSnapshot().isRunning;
+				}
+			});
+		});
+
 		const chat = feedback.createEl("button", {
 			text: "Chat with sources",
 			cls: "mod-muted",

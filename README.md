@@ -42,13 +42,14 @@ Chat is useful when you know what to ask. Vault Radar adds another loop: it turn
 - a connection that only appears across two notes;
 - the next action supported by the source material.
 
-That is **Vault Radar**. Every card cites the exact Markdown notes behind it. Open the evidence, continue with those sources in chat, mark the insight Helpful or Wrong, snooze it, or dismiss it. Radar never edits notes, and automatic runs are off until you explicitly enable them.
+That is **Vault Radar**. Every card cites the exact Markdown notes behind it. Open the evidence, map it on an editable Canvas, continue with those sources in chat, mark the insight Helpful or Wrong, snooze it, or dismiss it. Radar never edits notes, and automatic runs are off until you explicitly enable them.
 
 ## What you can do
 
 | Capability | Built for |
 | --- | --- |
 | **Vault Radar** | Turn changed notes into a small, cited brief of commitments, stalled work, connections, and next actions. |
+| **Insight Canvas** | Turn an existing Radar card into a local, editable evidence map without another model request. |
 | **Chat with notes** | Ask grounded questions across the vault or pin the current note, a folder, tags, or selected notes. |
 | **Related Notes** | Keep semantically relevant notes visible while you write, with direct source opening and scoped chat. |
 | **Text actions** | Summarize, rewrite, extract tasks, apply a custom instruction, or run saved prompts from the command palette. |
@@ -99,10 +100,15 @@ flowchart LR
     C --> D["Grounded cards<br/>with source IDs"]
     D --> E["Open exact sources"]
     D --> F["Chat with those sources"]
+    D --> H["Map as an editable Canvas"]
     D --> G["Helpful / Wrong<br/>Snooze / Dismiss"]
 ```
 
 After the first successful scan, Radar is incremental: unchanged notes are not repeatedly sent. A resilient local state file remembers scan versions, citations, feedback, snoozes, and dismissals. Large-vault state and prompt size are both bounded.
+
+### Insight Canvas
+
+Choose **Map it** on a Radar card to review its destination and available evidence, then confirm creation of a local Obsidian `.canvas` file under `Vault Radar Maps/`. The card's insight and any next action sit at the center. Available cited notes appear as clickable file nodes around it; missing sources are skipped. Evidence edges connect those notes to the insight. Source notes are never changed, existing files are never overwritten, and the plugin makes no additional model or API request. Obsidian may load external embeds when it renders cited notes.
 
 <p align="center">
   <img src="assets/source-scoped-chat.png" width="920" alt="Notes chat pinned to two Vault Radar sources with citations">
@@ -166,6 +172,7 @@ Local LLM Helper has no telemetry and no hosted backend of its own. Data goes on
 | Feature | Data sent | When |
 | --- | --- | --- |
 | Vault Radar | Bounded excerpts from changed Markdown notes; when feedback exists, kind/title metadata for up to six Helpful and six Wrong cards | Manual run, or daily after explicit opt-in |
+| Insight Canvas | The plugin sends no data to model or API endpoints; Obsidian may load external embeds referenced by cited notes | Canvas creation requires **Create and open** confirmation; embeds may load whenever Obsidian renders the Canvas |
 | Chat and text actions | Your prompt, selection, active-note context, or chosen note scope | When you submit a request |
 | RAG indexing | Note chunks and supported attachment text | When indexing runs |
 | RAG and Related Notes retrieval | Your question, active-note text, or selected text | When semantic retrieval queries the embedding endpoint |

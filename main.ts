@@ -10,6 +10,8 @@ import {
 	Setting,
 	SuggestModal,
 	TFile,
+	TFolder,
+	normalizePath,
 	requestUrl,
 	TextComponent,
 	ButtonComponent,
@@ -44,6 +46,16 @@ import { WorkflowModal } from './src/workflowModal';
 import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
 import type { WorkflowDefaults } from './src/workflowTypes';
 import {
+	buildInsightCanvas,
+	getCollisionSafeInsightCanvasPath,
+	INSIGHT_CANVAS_FOLDER,
+	serializeInsightCanvas,
+} from './src/insightCanvas';
+import {
+	InsightCanvasModal,
+	type InsightCanvasModalState,
+} from './src/insightCanvasModal';
+import {
 	createEmptyVaultRadarState,
 	getVisibleVaultRadarCards,
 	MAX_VAULT_RADAR_STATE_CHARS,
@@ -54,6 +66,7 @@ import {
 	type VaultRadarCardAction,
 	type VaultRadarRunResult,
 	type VaultRadarState,
+	type VaultRadarStoredCard,
 } from './src/vaultRadar';
 import {
 	getEffectiveEmbeddingServerAddress,
@@ -219,6 +232,10 @@ export default class OLocalLLMPlugin extends Plugin {
 	private vaultRadarDisposed = false;
 	private vaultRadarNextRetryAt = 0;
 	private vaultRadarCardMutationQueue: Promise<void> = Promise.resolve();
+	private insightCanvasCreationQueue: Promise<void> = Promise.resolve();
+	private insightCanvasInFlight = new Map<string, Promise<string>>();
+	private activeInsightCanvasModals = new Set<InsightCanvasModal>();
+	private insightCanvasDisposed = false;
 
 	async checkForUpdates() {
 		const currentVersion = this.manifest.version;
@@ -234,6 +251,7 @@ export default class OLocalLLMPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		this.vaultRadarDisposed = false;
+		this.insightCanvasDisposed = false;
 		this.vaultRadarState = await this.loadVaultRadarStateFromDisk();
 		this.llmClient = new OpenAICompatibleClient(
 			() => this.settings,
@@ -983,8 +1001,120 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.app.workspace.setActiveLeaf(leaf, { focus: true });
 	}
 
+	async createInsightCanvas(card: VaultRadarStoredCard): Promise<string> {
+		if (this.insightCanvasDisposed) {
+			throw new Error("Insight Canvas is unavailable while the plugin is unloading.");
+		}
+		const creationKey = card.id || card.fingerprint;
+		const inFlight = this.insightCanvasInFlight.get(creationKey);
+		if (inFlight) {
+			return inFlight;
+		}
+		const creation = this.insightCanvasCreationQueue.then(() => (
+			this.createInsightCanvasFile(card)
+		));
+		this.insightCanvasCreationQueue = creation.then(() => undefined, () => undefined);
+		this.insightCanvasInFlight.set(creationKey, creation);
+		try {
+			return await creation;
+		} finally {
+			if (this.insightCanvasInFlight.get(creationKey) === creation) {
+				this.insightCanvasInFlight.delete(creationKey);
+			}
+		}
+	}
+
+	openInsightCanvasModal(
+		card: VaultRadarStoredCard,
+		onStateChange?: (state: InsightCanvasModalState) => void,
+	): void {
+		if (this.insightCanvasDisposed) {
+			new Notice("Insight Canvas is unavailable while the plugin is unloading.");
+			return;
+		}
+		let modal: InsightCanvasModal;
+		modal = new InsightCanvasModal(
+			this.app,
+			this,
+			card,
+			() => this.activeInsightCanvasModals.delete(modal),
+			onStateChange,
+		);
+		this.activeInsightCanvasModals.add(modal);
+		modal.open();
+	}
+
+	private async createInsightCanvasFile(card: VaultRadarStoredCard): Promise<string> {
+		if (this.insightCanvasDisposed) {
+			throw new Error("Insight Canvas is unavailable while the plugin is unloading.");
+		}
+		const citedSourcePaths = Array.from(new Set(
+			card.sourcePaths.filter((path) => path.trim().length > 0),
+		));
+		const availableSourcePaths = citedSourcePaths.filter((path) => (
+			this.app.vault.getAbstractFileByPath(path) instanceof TFile
+		));
+		if (availableSourcePaths.length === 0) {
+			throw new Error("None of this insight's cited notes are available. Run Vault Radar again to refresh its sources.");
+		}
+
+		const existingFolder = this.app.vault.getAbstractFileByPath(INSIGHT_CANVAS_FOLDER);
+		if (existingFolder && !(existingFolder instanceof TFolder)) {
+			throw new Error(`${INSIGHT_CANVAS_FOLDER} exists as a file. Rename it before creating an Insight Canvas.`);
+		}
+		if (!existingFolder) {
+			try {
+				await this.app.vault.createFolder(INSIGHT_CANVAS_FOLDER);
+			} catch (error) {
+				const racedFolder = this.app.vault.getAbstractFileByPath(INSIGHT_CANVAS_FOLDER);
+				if (!(racedFolder instanceof TFolder)) {
+					throw error;
+				}
+			}
+		}
+
+		const canvasPath = normalizePath(await getCollisionSafeInsightCanvasPath(
+			INSIGHT_CANVAS_FOLDER,
+			card.title,
+			(path) => this.app.vault.getAbstractFileByPath(normalizePath(path)) !== null,
+		));
+		const document = buildInsightCanvas(card, availableSourcePaths);
+		if (this.insightCanvasDisposed) {
+			throw new Error("Insight Canvas stopped because the plugin is unloading.");
+		}
+		const canvasFile = await this.app.vault.create(
+			canvasPath,
+			`${serializeInsightCanvas(document)}\n`,
+		);
+
+		if (this.insightCanvasDisposed) {
+			return canvasPath;
+		}
+		const skippedSourceCount = citedSourcePaths.length - availableSourcePaths.length;
+		const skippedSuffix = skippedSourceCount > 0
+			? ` ${skippedSourceCount} missing source${skippedSourceCount === 1 ? " was" : "s were"} skipped.`
+			: "";
+		try {
+			const leaf = this.app.workspace.getLeaf("tab");
+			await leaf.openFile(canvasFile);
+			this.app.workspace.setActiveLeaf(leaf, { focus: true });
+		} catch {
+			new Notice(`Insight Canvas was created at ${canvasPath}, but Obsidian could not open it automatically.`);
+			return canvasPath;
+		}
+		new Notice(
+			`Insight Canvas created from ${availableSourcePaths.length} source${availableSourcePaths.length === 1 ? "" : "s"}.${skippedSuffix}`,
+		);
+		return canvasPath;
+	}
+
 	async onunload() {
 		this.vaultRadarDisposed = true;
+		this.insightCanvasDisposed = true;
+		for (const modal of this.activeInsightCanvasModals) {
+			modal.close();
+		}
+		this.activeInsightCanvasModals.clear();
 		if (this.vaultRadarTimer !== null) {
 			window.clearTimeout(this.vaultRadarTimer);
 			this.vaultRadarTimer = null;

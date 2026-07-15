@@ -1603,6 +1603,33 @@
     outline-offset: 2px;
 }
 
+.llm-helper-insight-canvas-summary {
+    margin: 16px 0;
+    padding: 14px 16px;
+    border-left: 3px solid var(--color-purple);
+    border-radius: 4px 12px 12px 4px;
+    background: color-mix(in srgb, var(--color-purple) 8%, var(--background-secondary));
+}
+
+.llm-helper-insight-canvas-summary h3 {
+    margin: 0 0 8px;
+    font-size: 15px;
+}
+
+.llm-helper-insight-canvas-summary p {
+    margin: 0;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.llm-helper-insight-canvas-error:not(:empty) {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--background-modifier-error);
+    color: var(--text-error);
+}
+
 .llm-helper-radar-content.is-running .llm-helper-radar-icon svg {
     animation: llm-helper-radar-pulse 1.4s ease-in-out infinite;
 }

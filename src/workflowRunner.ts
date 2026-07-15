@@ -1,10 +1,10 @@
-import { App, requestUrl } from "obsidian";
+import { App } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { AgentResponse, ChatEnvironmentContext, AgentAction } from "./vaultAgent";
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type { RAGQueryScope, SourceReference } from "./rag";
 import type { WorkflowDefaults, WorkflowRecipeDefaults, WorkflowRecipeId } from "./workflowTypes";
-import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
+import { OpenAICompatibleClient } from "./llmClient";
 
 export interface WorkflowRecipeDefinition {
 	id: WorkflowRecipeId;
@@ -112,6 +112,7 @@ export class WorkflowRunnerService {
 	constructor(
 		private app: App,
 		private plugin: OLocalLLMPlugin,
+		private llmClient: OpenAICompatibleClient,
 	) {}
 
 	getRecipe(recipeId: WorkflowRecipeId): WorkflowRecipeDefinition {
@@ -146,41 +147,26 @@ export class WorkflowRunnerService {
 	}
 
 	private async submitWorkflowPrompt(prompt: string): Promise<string> {
-		const response = await requestUrl({
-			url: this.getChatCompletionsUrl(),
-			method: "POST",
-			headers: buildOpenAIHeaders(getChatApiKey(this.plugin.settings)),
-			body: JSON.stringify({
-				model: this.plugin.settings.llmModel,
-				messages: [
-					{
-						role: "system",
-						content: [
-							"You are a workflow drafting assistant inside Obsidian.",
-							"Return strict JSON only. Do not wrap the JSON in markdown fences.",
-							"The JSON must match the requested workflow schema exactly.",
-						].join("\n"),
-					},
-					{
-						role: "user",
-						content: prompt,
-					},
-				],
-				temperature: this.plugin.settings.temperature,
-				max_tokens: this.plugin.settings.maxTokens,
-				stream: false,
-			}),
-			throw: false,
+		let rawResponse = await this.llmClient.complete({
+			model: this.plugin.settings.llmModel,
+			messages: [
+				{
+					role: "system",
+					content: [
+						"You are a workflow drafting assistant inside Obsidian.",
+						"Return strict JSON only. Do not wrap the JSON in markdown fences.",
+						"The JSON must match the requested workflow schema exactly.",
+					].join("\n"),
+				},
+				{
+					role: "user",
+					content: prompt,
+				},
+			],
+			temperature: this.plugin.settings.temperature,
+			maxTokens: this.plugin.settings.maxTokens,
+			bufferedStream: false,
 		});
-
-		if (response.status < 200 || response.status >= 300) {
-			throw new Error(`LLM server returned ${response.status}: ${response.text}`);
-		}
-
-		let rawResponse = response.json?.choices?.[0]?.message?.content ?? "";
-		if (typeof rawResponse !== "string") {
-			throw new Error("Workflow completion returned an unexpected response shape.");
-		}
 		if (this.plugin.settings.extractReasoningResponses) {
 			const markers = parseReasoningMarkers(this.plugin.settings.reasoningMarkers || "");
 			rawResponse = extractActualResponse(rawResponse, markers);
@@ -323,7 +309,4 @@ export class WorkflowRunnerService {
 		return typeof value === "string" ? value : undefined;
 	}
 
-	private getChatCompletionsUrl(): string {
-		return getChatCompletionsUrl(this.plugin.settings);
-	}
 }

@@ -1,8 +1,12 @@
-import { App, MarkdownRenderer, MarkdownView, Notice, TFile, requestUrl, setIcon } from "obsidian";
+import { App, MarkdownRenderer, MarkdownView, Notice, TFile, setIcon } from "obsidian";
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type OLocalLLMPlugin from "../main";
-import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
 import type { SourceReference } from "./rag";
+import {
+	type ChatMessage,
+	type CompletionRequest,
+	OpenAICompatibleClient,
+} from "./llmClient";
 
 export interface ConversationEntry {
 	prompt: string;
@@ -83,25 +87,14 @@ interface RenderAgentResponseOptions {
 const ACTION_BLOCK_PATTERN = /<vault-actions>\s*([\s\S]*?)\s*<\/vault-actions>/i;
 
 export class VaultAgentService {
-	constructor(private app: App, private plugin: OLocalLLMPlugin) {}
+	constructor(
+		private app: App,
+		private plugin: OLocalLLMPlugin,
+		private llmClient: OpenAICompatibleClient,
+	) {}
 
 	async submitChat(request: SubmitChatRequest): Promise<AgentResponse> {
-		const response = await requestUrl({
-			url: this.getChatCompletionsUrl(),
-			method: "POST",
-			headers: buildOpenAIHeaders(getChatApiKey(this.plugin.settings)),
-			body: JSON.stringify(this.buildRequestBody(request)),
-			throw: false,
-		});
-
-		if (response.status < 200 || response.status >= 300) {
-			throw new Error(`LLM server returned ${response.status}: ${response.text}`);
-		}
-
-		let rawResponse = response.json?.choices?.[0]?.message?.content ?? "";
-		if (typeof rawResponse !== "string") {
-			throw new Error("Chat completion returned an unexpected response shape.");
-		}
+		let rawResponse = await this.llmClient.complete(this.buildRequestBody(request));
 
 		if (this.plugin.settings.extractReasoningResponses) {
 			const markers = parseReasoningMarkers(this.plugin.settings.reasoningMarkers || "");
@@ -111,7 +104,7 @@ export class VaultAgentService {
 		return this.parseAgentResponse(rawResponse, request.context, request.ragSources);
 	}
 
-	private buildRequestBody(request: SubmitChatRequest) {
+	private buildRequestBody(request: SubmitChatRequest): CompletionRequest {
 		const isRagChat = Boolean(request.ragContext);
 		const systemParts = [
 			isRagChat
@@ -154,9 +147,9 @@ export class VaultAgentService {
 			contextParts.push(`Retrieved note context:\n${request.ragContext}`);
 		}
 
-		const messages: Array<{ role: string; content: string }> = [
+		const messages: ChatMessage[] = [
 			{ role: "system", content: systemParts.join("\n\n") },
-			...this.getRecentConversation(request.conversationHistory).flatMap((entry) => [
+			...this.getRecentConversation(request.conversationHistory).flatMap<ChatMessage>((entry) => [
 				{ role: "user", content: entry.prompt },
 				{ role: "assistant", content: entry.response },
 			]),
@@ -175,8 +168,8 @@ export class VaultAgentService {
 			model: this.plugin.settings.llmModel,
 			messages,
 			temperature: this.plugin.settings.temperature,
-			max_tokens: this.plugin.settings.maxTokens,
-			stream: false,
+			maxTokens: this.plugin.settings.maxTokens,
+			bufferedStream: false,
 		};
 	}
 
@@ -695,10 +688,6 @@ export class VaultAgentService {
 			return { ok: false, error: `Multiple notes match "${target}". Use the full path.` };
 		}
 		return { ok: false, error: `Could not find a note matching "${target}".` };
-	}
-
-	private getChatCompletionsUrl(): string {
-		return getChatCompletionsUrl(this.plugin.settings);
 	}
 
 	private isRecord(value: unknown): value is Record<string, unknown> {

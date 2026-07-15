@@ -10,6 +10,7 @@ import {
 } from "./chatSession";
 import { RAGScopeSelector, describeRAGScope } from "./ragScope";
 import { type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext } from "./vaultAgent";
+import { LLMClientError } from "./llmClient";
 
 export const CHAT_VIEW_TYPE = "llm-helper-chat";
 
@@ -378,12 +379,16 @@ export class ChatView extends ItemView {
 			thinkingEl.remove();
 			this.activeThinkingEl = null;
 			const errorMsg = this.chatHistoryEl.createDiv({ cls: "rag-chat-message rag-chat-message-error" });
-			const errorText = error instanceof Error ? error.message : "Chat failed. Check the console for details.";
+			const errorText = error instanceof LLMClientError
+				? error.message
+				: error instanceof Error
+					? error.message
+					: "Chat failed. Check the console for details.";
 			errorMsg.createSpan({
 				text: errorText,
 			});
 			console.error("Sidebar chat error:", error);
-			this.setStatusBanner(this.getFriendlyErrorMessage(errorText), "error");
+			this.setStatusBanner(this.getFriendlyErrorMessage(error), "error");
 			new Notice(errorText);
 			this.scrollToBottom();
 		} finally {
@@ -454,7 +459,11 @@ export class ChatView extends ItemView {
 		this.textInput.setCssProps({ "--llm-helper-chat-input-height": nextHeight });
 	}
 
-	private getFriendlyErrorMessage(errorText: string): string {
+	private getFriendlyErrorMessage(error: unknown): string {
+		if (error instanceof LLMClientError) {
+			return error.message;
+		}
+		const errorText = error instanceof Error ? error.message : "";
 		if (errorText.includes("401") || errorText.toLowerCase().includes("unauthorized")) {
 			return "Authentication failed. Check your API key in settings.";
 		}

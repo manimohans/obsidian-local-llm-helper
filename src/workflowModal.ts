@@ -263,7 +263,10 @@ export class WorkflowModal extends Modal {
 
 	private async persistDefaults() {
 		const defaults = this.plugin.settings.workflowDefaults.recipes[this.recipeId];
-		defaults.scopeOption = this.scopeSelector.getScopeOption();
+		const scopeOption = this.scopeSelector.getScopeOption();
+		if (scopeOption !== "pinned-paths") {
+			defaults.scopeOption = scopeOption;
+		}
 		defaults.tagValue = this.scopeSelector.getTagDraftValue();
 		defaults.targetNote = this.targetNoteInput?.getValue().trim() || "";
 		defaults.outputFolder = this.outputFolderInput?.getValue().trim() || "";

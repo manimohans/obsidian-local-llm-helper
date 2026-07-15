@@ -1,8 +1,12 @@
-import { App, Editor, EditorPosition, MarkdownView, Notice, requestUrl } from "obsidian";
+import { App, Editor, EditorPosition, MarkdownView, Notice } from "obsidian";
 import type { OLocalLLMSettings } from "../main";
-import { buildOpenAIHeaders, getChatApiKey, getChatCompletionsUrl } from "./providerSettings";
+import { LLMClientError, OpenAICompatibleClient } from "./llmClient";
 
-export async function generateAndAppendTags(app: App, settings: OLocalLLMSettings) {
+export async function generateAndAppendTags(
+	app: App,
+	settings: OLocalLLMSettings,
+	llmClient: OpenAICompatibleClient,
+) {
 	const view = app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) {
 		new Notice("No active Markdown view");
@@ -16,7 +20,7 @@ export async function generateAndAppendTags(app: App, settings: OLocalLLMSetting
 	const textToProcess = selectedText || fullText;
 
 	try {
-		const tags = await generateTags(textToProcess, settings);
+		const tags = await generateTags(textToProcess, settings, llmClient);
 		if (tags.length === 0) {
 			new Notice("No valid tags were generated. Try again or adjust the text.");
 			return;
@@ -25,40 +29,28 @@ export async function generateAndAppendTags(app: App, settings: OLocalLLMSetting
 		new Notice("Tags generated and appended");
 	} catch (error) {
 		console.error("Error generating tags:", error);
-		new Notice("Error generating tags. Check the console for details.");
+		new Notice(error instanceof LLMClientError
+			? error.message
+			: "Error generating tags. Check the console for details.");
 	}
 }
 
-async function generateTags(text: string, settings: OLocalLLMSettings): Promise<string[]> {
+async function generateTags(
+	text: string,
+	settings: OLocalLLMSettings,
+	llmClient: OpenAICompatibleClient,
+): Promise<string[]> {
 	const prompt = "Generate 3-5 relevant hashtags for the following text. Return only hashtags starting with #, separated by spaces. No explanations:";
 
-	const body = {
+	const content = await llmClient.complete({
 		model: settings.llmModel,
 		messages: [
 			{ role: "system", content: "You are a helpful assistant that generates relevant hashtags." },
 			{ role: "user", content: `${prompt}\n\n${text}` }
 		],
 		temperature: settings.temperature,
-		max_tokens: settings.maxTokens
-	};
-
-	const response = await requestUrl({
-		url: getChatCompletionsUrl(settings),
-		method: "POST",
-		headers: buildOpenAIHeaders(getChatApiKey(settings)),
-		body: JSON.stringify(body),
-		throw: false
+		maxTokens: settings.maxTokens,
 	});
-
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`Error from LLM server: ${response.status} ${response.text}`);
-	}
-
-	const data = response.json;
-	const content = data?.choices?.[0]?.message?.content;
-	if (typeof content !== "string") {
-		throw new Error("Unexpected server response — no completion content returned.");
-	}
 	const generatedTags = content.trim().split(/\s+/);
 	// Obsidian tags allow letters (incl. unicode), digits, -, _, and / for nesting
 	return generatedTags

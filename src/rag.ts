@@ -1,19 +1,13 @@
-import { Notice, TFile, Vault, Plugin, requestUrl } from "obsidian";
+import { Notice, TFile, Vault, Plugin } from "obsidian";
 import { OpenAIEmbeddings } from "./openAIEmbeddings";
+import { OpenAICompatibleClient } from "./llmClient";
 import type { OLocalLLMSettings } from "../main";
 import {
 	AttachmentExtractor,
 	type ExtractionMethod,
 	type IndexedSourceType,
 } from "./attachmentExtractor";
-import {
-	buildOpenAIHeaders,
-	getChatApiKey,
-	getChatCompletionsUrl,
-	getEffectiveEmbeddingApiKey,
-	getEffectiveEmbeddingBaseUrl,
-	getEffectiveEmbeddingServerAddress,
-} from "./providerSettings";
+import { getEffectiveEmbeddingServerAddress } from "./providerSettings";
 import { debugLog } from "./debug";
 
 interface IndexedDocument {
@@ -159,7 +153,8 @@ export class RAGManager {
 	constructor(
 		private vault: Vault,
 		private settings: OLocalLLMSettings,
-		private plugin: Plugin
+		private plugin: Plugin,
+		private llmClient: OpenAICompatibleClient,
 	) {
 		this.provider = this.settings.providerType || "ollama";
 		this.embeddingConfig = this.createEmbeddingConfig(this.settings);
@@ -226,9 +221,8 @@ export class RAGManager {
 
 	private createEmbeddingsClient(settings: OLocalLLMSettings): OpenAIEmbeddings {
 		return new OpenAIEmbeddings(
-			getEffectiveEmbeddingApiKey(settings),
+			this.llmClient,
 			settings.embeddingModelName,
-			getEffectiveEmbeddingBaseUrl(settings)
 		);
 	}
 
@@ -285,29 +279,14 @@ Be concise and cite specific notes when possible.
 Context:
 ${context}`;
 
-			const response = await requestUrl({
-				url: getChatCompletionsUrl(this.settings),
-				method: 'POST',
-				headers: buildOpenAIHeaders(getChatApiKey(this.settings)),
-				body: JSON.stringify({
+				const answer = await this.llmClient.complete({
 					model: this.settings.llmModel,
 					temperature: this.settings.temperature,
 					messages: [
 						{ role: "system", content: systemPrompt },
 						{ role: "user", content: query },
 					],
-				}),
-				throw: false,
-			});
-
-			if (response.status < 200 || response.status >= 300) {
-				throw new Error(`Chat completion failed (HTTP ${response.status}): ${response.text?.slice(0, 300) ?? ''}`);
-			}
-
-			const answer = response.json?.choices?.[0]?.message?.content;
-			if (typeof answer !== 'string') {
-				throw new Error("Chat completion returned an unexpected response shape.");
-			}
+				});
 
 			const sources = this.buildSourceReferences(docs);
 

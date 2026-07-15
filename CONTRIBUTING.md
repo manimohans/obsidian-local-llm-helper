@@ -4,17 +4,17 @@ Thanks for helping improve Local LLM Helper. This plugin is built for Obsidian u
 
 ## Development Setup
 
-1. Clone the repository.
+1. Install Node.js 20 or later and clone the repository.
 2. Install dependencies:
 
 ```bash
-npm install
+npm ci
 ```
 
-3. Run a production build:
+3. Run the test and production-build gate:
 
 ```bash
-npm run build
+npm run check
 ```
 
 4. For local Obsidian testing, copy or symlink the repository into:
@@ -27,11 +27,12 @@ Then reload Obsidian or disable and re-enable the plugin.
 
 ## Before Opening a Pull Request
 
-- Run `npm run build`.
+- Run `npm run check`.
 - Keep changes focused and avoid unrelated formatting churn.
 - Do not add telemetry, analytics, or background network behavior.
 - Keep vault writes behind explicit user approval.
-- Use Obsidian APIs such as `requestUrl` instead of browser-only network APIs.
+- Route OpenAI-compatible model requests through `OpenAICompatibleClient`; keep Obsidian's `requestUrl` isolated in the transport adapter.
+- Use Obsidian APIs such as `requestUrl` instead of browser-only network APIs for unrelated integrations.
 - Prefer local-first behavior and clear disclosure when content is sent to a configured model or search endpoint.
 
 ## Good First Areas

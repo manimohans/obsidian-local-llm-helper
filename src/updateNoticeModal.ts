@@ -3,6 +3,20 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.5.0",
+		date: "2026-07",
+		changes: `
+**Vault Radar**
+- Turn recently changed notes into a cited brief of commitments, stalled projects, connections, and useful next actions.
+- Open every supporting note, continue in source-scoped chat, and teach the brief with Helpful, Wrong, Snooze, and Dismiss controls.
+- Run it only when you ask, or opt into a daily brief. Automatic model calls remain off by default, and Radar never edits notes.
+
+**Model Reliability**
+- Unified OpenAI-compatible requests behind one tested client for more consistent provider behavior, timeouts, streaming, and errors.
+- Added automated tests and CI checks to protect chat, RAG, workflows, tagging, and Radar releases.
+`,
+	},
+	{
 		version: "2.4.8",
 		date: "2026-07",
 		changes: `

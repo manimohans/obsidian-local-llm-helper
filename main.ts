@@ -26,23 +26,39 @@ import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict, modifyPromp
 import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customPrompts';
 import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
 import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
+import {
+	VaultRadarView,
+	VAULT_RADAR_VIEW_TYPE,
+	type VaultRadarViewOpenOptions,
+} from './src/vaultRadarView';
 import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext } from './src/vaultAgent';
 import { submitGeneralChat, updateConversationHistory as recordConversationHistory } from './src/chatSession';
 import { debugLog, setDebugLogging } from './src/debug';
+import {
+	type ChatMessage,
+	LLMClientError,
+	OpenAICompatibleClient,
+} from './src/llmClient';
+import { obsidianRequestTransport } from './src/obsidianRequestTransport';
 import { WorkflowModal } from './src/workflowModal';
 import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
 import type { WorkflowDefaults } from './src/workflowTypes';
 import {
-	buildOpenAIHeaders,
-	getChatApiKey,
-	getChatCompletionsUrl,
-	getChatModelsUrl,
-	getEffectiveEmbeddingApiKey,
+	createEmptyVaultRadarState,
+	getVisibleVaultRadarCards,
+	MAX_VAULT_RADAR_STATE_CHARS,
+	normalizeVaultRadarState,
+	prepareVaultRadarStateForPersistence,
+	updateVaultRadarCard,
+	VaultRadarService,
+	type VaultRadarCardAction,
+	type VaultRadarRunResult,
+	type VaultRadarState,
+} from './src/vaultRadar';
+import {
 	getEffectiveEmbeddingServerAddress,
-	getEmbeddingModelsUrl,
 	normalizeOptionalServerAddress,
 	normalizeServerAddress,
-	type ModelEndpointTarget,
 } from './src/providerSettings';
 
 // Remember to rename these classes and interfaces!
@@ -84,6 +100,9 @@ export interface OLocalLLMSettings {
 	showAgentDebug: boolean;
 	renderMarkdownInChat: boolean;
 	workflowDefaults: WorkflowDefaults;
+	vaultRadarAutoRun: boolean;
+	vaultRadarAutoRunEnabledAt: number;
+	vaultRadarMaxNotes: number;
 }
 
 const DEFAULT_SETTINGS: OLocalLLMSettings = {
@@ -123,6 +142,9 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	showAgentDebug: false,
 	renderMarkdownInChat: true,
 	workflowDefaults: createDefaultWorkflowDefaults(),
+	vaultRadarAutoRun: false,
+	vaultRadarAutoRunEnabledAt: 0,
+	vaultRadarMaxNotes: 12,
 };
 
 function normalizeSearxngInstanceUrl(url: string): string {
@@ -179,6 +201,8 @@ export default class OLocalLLMPlugin extends Plugin {
 	public ragManager: RAGManager;
 	public vaultAgent: VaultAgentService;
 	public workflowRunner: WorkflowRunnerService;
+	public llmClient: OpenAICompatibleClient;
+	public vaultRadar: VaultRadarService;
 	private backlinkGenerator: BacklinkGenerator;
 	public personasDict: PersonasDict = {};
 	private registeredPromptCommands: Set<string> = new Set();
@@ -187,6 +211,14 @@ export default class OLocalLLMPlugin extends Plugin {
 	statusBarItemEl: HTMLElement | null = null;
 	private lastRelatedNotesContext: RelatedNotesContext | null = null;
 	private lastMarkdownLeaf: WorkspaceLeaf | null = null;
+	private vaultRadarState: VaultRadarState = createEmptyVaultRadarState();
+	private vaultRadarTimer: number | null = null;
+	private vaultRadarRunPromise: Promise<void> | null = null;
+	private vaultRadarMessage = "";
+	private vaultRadarError = "";
+	private vaultRadarDisposed = false;
+	private vaultRadarNextRetryAt = 0;
+	private vaultRadarCardMutationQueue: Promise<void> = Promise.resolve();
 
 	async checkForUpdates() {
 		const currentVersion = this.manifest.version;
@@ -201,15 +233,22 @@ export default class OLocalLLMPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
+		this.vaultRadarDisposed = false;
+		this.vaultRadarState = await this.loadVaultRadarStateFromDisk();
+		this.llmClient = new OpenAICompatibleClient(
+			() => this.settings,
+			obsidianRequestTransport,
+		);
 		this.registerCustomPromptCommands();
 		void this.checkForUpdates();
 		// Validate server configuration
 		this.validateServerConfiguration();
 
 		// Initialize RAGManager
-		this.ragManager = new RAGManager(this.app.vault, this.settings, this);
-		this.vaultAgent = new VaultAgentService(this.app, this);
-		this.workflowRunner = new WorkflowRunnerService(this.app, this);
+		this.ragManager = new RAGManager(this.app.vault, this.settings, this, this.llmClient);
+		this.vaultAgent = new VaultAgentService(this.app, this, this.llmClient);
+		this.workflowRunner = new WorkflowRunnerService(this.app, this, this.llmClient);
+		this.vaultRadar = this.createVaultRadarService();
 		
 		// Initialize RAGManager and show user notification about loaded data
 		await this.ragManager.initialize();
@@ -232,6 +271,18 @@ export default class OLocalLLMPlugin extends Plugin {
 			CHAT_VIEW_TYPE,
 			(leaf: WorkspaceLeaf) => new ChatView(leaf, this)
 		);
+		this.registerView(
+			VAULT_RADAR_VIEW_TYPE,
+			(leaf: WorkspaceLeaf) => new VaultRadarView(leaf, this)
+		);
+
+		this.addCommand({
+			id: 'index-notes-rag',
+			name: 'Notes: Index notes for RAG',
+			callback: () => {
+				void this.indexNotes();
+			},
+		});
 
 		// Add command for RAG Backlinks
 		this.addCommand({
@@ -302,6 +353,22 @@ export default class OLocalLLMPlugin extends Plugin {
 			name: 'Workflow: Run workflow...',
 			callback: () => {
 				new WorkflowModal(this.app, this).open();
+			},
+		});
+
+		this.addCommand({
+			id: 'open-vault-radar',
+			name: 'Vault Radar: Open',
+			callback: () => {
+				void this.openVaultRadarView({ focusRunButton: true });
+			},
+		});
+
+		this.addCommand({
+			id: 'run-vault-radar',
+			name: 'Vault Radar: Run now',
+			callback: () => {
+				void this.openVaultRadarView({ runNow: true });
 			},
 		});
 
@@ -383,7 +450,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "llm-hashtag",
 			name: "Text: Generate tags",
 			callback: () => {
-				void generateAndAppendTags(this.app, this.settings);
+				void generateAndAppendTags(this.app, this.settings, this.llmClient);
 			},
 		});
 
@@ -418,6 +485,15 @@ export default class OLocalLLMPlugin extends Plugin {
 			const menu = new Menu();
 
 			// === Chat Section ===
+			menu.addItem((item) =>
+				item
+					.setTitle("Vault Radar")
+					.setIcon("radar")
+					.onClick(() => {
+						void this.openVaultRadarView();
+					})
+			);
+
 			menu.addItem((item) =>
 				item
 					.setTitle("Chat")
@@ -499,7 +575,7 @@ export default class OLocalLLMPlugin extends Plugin {
 						const selectedText = this.getSelectedText();
 						if (selectedText.length > 0) {
 							new Notice("Generating tags...");
-							void generateAndAppendTags(this.app, this.settings);
+							void generateAndAppendTags(this.app, this.settings, this.llmClient);
 						}
 					})
 			);
@@ -577,6 +653,11 @@ export default class OLocalLLMPlugin extends Plugin {
 		this.statusBarItemEl.setText("LLM Helper: Ready");
 
 		this.addSettingTab(new OLLMSettingTab(this.app, this));
+		this.app.workspace.onLayoutReady(() => {
+			if (!this.vaultRadarDisposed) {
+				this.startVaultRadarTimer();
+			}
+		});
 	}
 
 	private validateServerConfiguration(): boolean {
@@ -714,6 +795,128 @@ export default class OLocalLLMPlugin extends Plugin {
 		}
 	}
 
+	async openVaultRadarView(options: VaultRadarViewOpenOptions = {}): Promise<void> {
+		const leaf = await this.app.workspace.ensureSideLeaf(
+			VAULT_RADAR_VIEW_TYPE,
+			"right",
+			{ active: true, reveal: true },
+		);
+		await this.app.workspace.revealLeaf(leaf);
+		this.app.workspace.setActiveLeaf(leaf, { focus: true });
+
+		if (leaf.view instanceof VaultRadarView) {
+			leaf.view.applyOpenOptions(options);
+			return;
+		}
+		new Notice("Could not open Vault Radar view.");
+	}
+
+	getVaultRadarSnapshot() {
+		const state = normalizeVaultRadarState(this.vaultRadarState);
+		return {
+			state,
+			cards: getVisibleVaultRadarCards(state),
+			isRunning: this.vaultRadarRunPromise !== null,
+			message: this.vaultRadarMessage,
+			error: this.vaultRadarError,
+		};
+	}
+
+	async runVaultRadar(trigger: "manual" | "daily" = "manual"): Promise<void> {
+		if (this.vaultRadarRunPromise) {
+			if (trigger === "manual") {
+				new Notice("Vault Radar is already scanning changed notes.");
+			}
+			return this.vaultRadarRunPromise;
+		}
+
+		const runPromise = this.executeVaultRadarRun(trigger).finally(() => {
+			if (this.vaultRadarRunPromise === runPromise) {
+				this.vaultRadarRunPromise = null;
+			}
+			void this.refreshVaultRadarViews();
+			this.startVaultRadarTimer();
+		});
+		this.vaultRadarRunPromise = runPromise;
+		await this.refreshVaultRadarViews();
+		return runPromise;
+	}
+
+	async recordVaultRadarCardAction(
+		cardId: string,
+		action: VaultRadarCardAction,
+	): Promise<boolean> {
+		if (this.vaultRadarRunPromise) {
+			new Notice("Wait for the current Vault Radar scan to finish.");
+			return false;
+		}
+		const mutation = this.vaultRadarCardMutationQueue.then(async () => {
+			const nextState = updateVaultRadarCard(this.vaultRadarState, cardId, action);
+			await this.persistVaultRadarState(nextState);
+			await this.refreshVaultRadarViews();
+			return true;
+		});
+		this.vaultRadarCardMutationQueue = mutation.then(() => undefined, () => undefined);
+		try {
+			return await mutation;
+		} catch (error) {
+			console.error("Vault Radar feedback could not be saved:", error);
+			new Notice("Could not save Vault Radar feedback.");
+			return false;
+		}
+	}
+
+	private async executeVaultRadarRun(trigger: "manual" | "daily"): Promise<void> {
+		this.vaultRadarError = "";
+		this.vaultRadarMessage = "Scanning changed notes…";
+		await this.refreshVaultRadarViews();
+		try {
+			await this.vaultRadarCardMutationQueue;
+			const result = await this.vaultRadar.run();
+			this.vaultRadarNextRetryAt = 0;
+			this.vaultRadarMessage = this.describeVaultRadarResult(result);
+			if (trigger === "manual") {
+				new Notice(this.vaultRadarMessage);
+			} else if (result.status === "generated") {
+				new Notice(`Vault Radar found ${result.cards.length} new insight${result.cards.length === 1 ? "" : "s"}.`);
+			}
+		} catch (error) {
+			console.error("Vault Radar run failed:", error);
+			this.vaultRadarNextRetryAt = Date.now() + 30 * 60 * 1000;
+			this.vaultRadarError = this.describeVaultRadarError(error);
+			this.vaultRadarMessage = "Previous insights are still available.";
+			if (trigger === "manual") {
+				new Notice(this.vaultRadarError);
+			}
+		}
+	}
+
+	private describeVaultRadarResult(result: VaultRadarRunResult): string {
+		if (result.status === "generated") {
+			return `Found ${result.cards.length} new cited insight${result.cards.length === 1 ? "" : "s"} from ${result.selectedPaths.length} changed note${result.selectedPaths.length === 1 ? "" : "s"}.`;
+		}
+		if (result.status === "no_new_insights") {
+			return `Checked ${result.selectedPaths.length} changed note${result.selectedPaths.length === 1 ? "" : "s"}; no new grounded insight was strong enough to show.`;
+		}
+		return "No changed Markdown notes since the last successful check.";
+	}
+
+	private describeVaultRadarError(error: unknown): string {
+		const message = error instanceof Error ? error.message : "Unknown error";
+		if (error instanceof LLMClientError) {
+			return `Vault Radar could not reach the configured model: ${message}`;
+		}
+		return `Vault Radar could not finish: ${message}`;
+	}
+
+	private async refreshVaultRadarViews(): Promise<void> {
+		for (const leaf of this.app.workspace.getLeavesOfType(VAULT_RADAR_VIEW_TYPE)) {
+			if (leaf.view instanceof VaultRadarView) {
+				leaf.view.refresh();
+			}
+		}
+	}
+
 	async activateRelatedNotesView(): Promise<void> {
 		await this.captureRelatedNotesContext();
 		const context = await this.getRelatedNotesContext();
@@ -781,6 +984,12 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 
 	async onunload() {
+		this.vaultRadarDisposed = true;
+		if (this.vaultRadarTimer !== null) {
+			window.clearTimeout(this.vaultRadarTimer);
+			this.vaultRadarTimer = null;
+		}
+		this.app.workspace.detachLeavesOfType(VAULT_RADAR_VIEW_TYPE);
 		if (this.relatedNotesRefreshTimer !== null) {
 			window.clearTimeout(this.relatedNotesRefreshTimer);
 			this.relatedNotesRefreshTimer = null;
@@ -873,6 +1082,152 @@ export default class OLocalLLMPlugin extends Plugin {
 		};
 	}
 
+	private createVaultRadarService(): VaultRadarService {
+		return new VaultRadarService(
+			this.llmClient,
+			() => ({
+				model: this.settings.llmModel,
+				temperature: Math.min(0.4, Math.max(0, this.settings.temperature)),
+				maxTokens: Math.min(2_400, Math.max(1_400, this.settings.maxTokens)),
+				reasoningMarkers: this.settings.reasoningMarkers,
+			}),
+			{
+				listNotes: async () => this.app.vault.getMarkdownFiles().map((file) => ({
+					path: file.path,
+					modifiedAt: file.stat.mtime,
+					createdAt: file.stat.ctime,
+					size: file.stat.size,
+				})),
+				readNote: async (path: string) => {
+					const file = this.app.vault.getAbstractFileByPath(path);
+					if (!(file instanceof TFile)) {
+						throw new Error(`Changed note is no longer available: ${path}`);
+					}
+					return this.app.vault.cachedRead(file);
+				},
+				loadState: async () => normalizeVaultRadarState(this.vaultRadarState),
+				saveState: async (state: VaultRadarState) => this.persistVaultRadarState(state),
+			},
+			{
+				maxNotes: this.settings.vaultRadarMaxNotes,
+				maxContextChars: 36_000,
+				maxCharsPerNote: 3_200,
+				maxCards: 5,
+			},
+		);
+	}
+
+	refreshVaultRadarConfiguration(): void {
+		if (!this.vaultRadarRunPromise) {
+			this.vaultRadar = this.createVaultRadarService();
+		}
+	}
+
+	startVaultRadarTimer(): void {
+		if (this.vaultRadarTimer !== null) {
+			window.clearTimeout(this.vaultRadarTimer);
+			this.vaultRadarTimer = null;
+		}
+		if (this.vaultRadarDisposed || !this.settings.vaultRadarAutoRun) {
+			return;
+		}
+
+		const now = Date.now();
+		const enabledAt = this.settings.vaultRadarAutoRunEnabledAt > 0
+			? this.settings.vaultRadarAutoRunEnabledAt
+			: now;
+		const lastCheck = Math.max(
+			this.vaultRadarState.lastSuccessfulRunAt ?? 0,
+			enabledAt,
+		);
+		const dailyDueAt = lastCheck + 24 * 60 * 60 * 1000;
+		const dueAt = Math.max(dailyDueAt, this.vaultRadarNextRetryAt);
+		const delay = Math.min(2_147_000_000, Math.max(2_000, dueAt - now));
+		this.vaultRadarTimer = window.setTimeout(() => {
+			this.vaultRadarTimer = null;
+			void this.runVaultRadar("daily");
+		}, delay);
+	}
+
+	private getVaultRadarStatePath(): string {
+		const configDir = this.app.vault.configDir.replace(/\/+$/, "");
+		const pluginDir = this.manifest.dir || `${configDir}/plugins/${this.manifest.id}`;
+		return `${pluginDir}/vault-radar-state.json`;
+	}
+
+	private async loadVaultRadarStateFromDisk(): Promise<VaultRadarState> {
+		const path = this.getVaultRadarStatePath();
+		const backupPath = `${path}.bak`;
+		for (const candidate of [path, backupPath]) {
+			try {
+				if (!await this.app.vault.adapter.exists(candidate)) {
+					continue;
+				}
+				const raw = await this.app.vault.adapter.read(candidate);
+				if (raw.length > MAX_VAULT_RADAR_STATE_CHARS) {
+					throw new Error("state file is unexpectedly large");
+				}
+				return normalizeVaultRadarState(JSON.parse(raw));
+			} catch (error) {
+				console.warn(`Vault Radar ignored unreadable state at ${candidate}:`, error);
+			}
+		}
+		return createEmptyVaultRadarState();
+	}
+
+	private async persistVaultRadarState(state: VaultRadarState): Promise<void> {
+		if (this.vaultRadarDisposed) {
+			throw new Error("Vault Radar was unloaded before the result could be saved.");
+		}
+		const prepared = prepareVaultRadarStateForPersistence(state);
+		const path = this.getVaultRadarStatePath();
+		const temporaryPath = `${path}.tmp`;
+		const backupPath = `${path}.bak`;
+		const adapter = this.app.vault.adapter;
+		const serialized = prepared.serialized;
+
+		if (await adapter.exists(temporaryPath)) {
+			await adapter.remove(temporaryPath);
+		}
+		await adapter.write(temporaryPath, serialized);
+
+		let movedPrevious = false;
+		try {
+			if (await adapter.exists(backupPath)) {
+				await adapter.remove(backupPath);
+			}
+			if (await adapter.exists(path)) {
+				await adapter.rename(path, backupPath);
+				movedPrevious = true;
+			}
+			try {
+				await adapter.rename(temporaryPath, path);
+			} catch (error) {
+				if (movedPrevious && !await adapter.exists(path) && await adapter.exists(backupPath)) {
+					await adapter.rename(backupPath, path);
+				}
+				throw error;
+			}
+			if (movedPrevious && await adapter.exists(backupPath)) {
+				try {
+					await adapter.remove(backupPath);
+				} catch (error) {
+					console.warn("Vault Radar left a recoverable backup state file:", error);
+				}
+			}
+		} catch (error) {
+			if (await adapter.exists(temporaryPath)) {
+				await adapter.remove(temporaryPath);
+			}
+			throw error;
+		}
+
+		if (this.vaultRadarDisposed) {
+			throw new Error("Vault Radar was unloaded before the result could be applied.");
+		}
+		this.vaultRadarState = prepared.state;
+	}
+
 	startAutoIndexTimer() {
 		if (this.autoIndexTimer) {
 			window.clearTimeout(this.autoIndexTimer);
@@ -938,6 +1293,13 @@ export default class OLocalLLMPlugin extends Plugin {
 			}
 		}
 		this.settings.workflowDefaults = mergeWorkflowDefaults(savedData?.workflowDefaults);
+		this.settings.vaultRadarAutoRun = this.settings.vaultRadarAutoRun === true;
+		this.settings.vaultRadarAutoRunEnabledAt = Number.isFinite(this.settings.vaultRadarAutoRunEnabledAt)
+			? Math.max(0, this.settings.vaultRadarAutoRunEnabledAt)
+			: 0;
+		this.settings.vaultRadarMaxNotes = Number.isFinite(this.settings.vaultRadarMaxNotes)
+			? Math.min(25, Math.max(3, Math.floor(this.settings.vaultRadarMaxNotes)))
+			: DEFAULT_SETTINGS.vaultRadarMaxNotes;
 		setDebugLogging(this.settings.showAgentDebug);
 
 		this.settings.serverAddress = normalizeServerAddress(this.settings.serverAddress);
@@ -968,6 +1330,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		}
 
 		this.queueRelatedNotesRefresh(150);
+		await this.refreshVaultRadarViews();
 	}
 
 	rebuildPersonas() {
@@ -1133,35 +1496,6 @@ export default class OLocalLLMPlugin extends Plugin {
 	}
 }
 
-async function fetchAvailableModels(settings: OLocalLLMSettings, target: ModelEndpointTarget): Promise<string[]> {
-	const apiKey = target === "embedding"
-		? getEffectiveEmbeddingApiKey(settings)
-		: getChatApiKey(settings);
-	const url = target === "embedding"
-		? getEmbeddingModelsUrl(settings)
-		: getChatModelsUrl(settings);
-
-	const response = await requestUrl({
-		url,
-		method: "GET",
-		headers: buildOpenAIHeaders(apiKey),
-	});
-
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(`Server returned ${response.status}`);
-	}
-
-	const data = response.json as ModelListResponse;
-	if (!data?.data || !Array.isArray(data.data)) {
-		throw new Error("Unexpected response format");
-	}
-
-	return data.data
-		.map((model) => model.id)
-		.filter((id): id is string => Boolean(id))
-		.sort();
-}
-
 class ModelPickerModal extends SuggestModal<string> {
 	private models: string[];
 	private onChoose: (model: string) => void;
@@ -1325,7 +1659,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					try {
 						btn.setDisabled(true);
 						btn.setButtonText("Loading...");
-						const models = await fetchAvailableModels(this.plugin.settings, "chat");
+						const models = await this.plugin.llmClient.listModels("chat");
 						if (models.length === 0) {
 							new Notice("No models found on server");
 							return;
@@ -1337,7 +1671,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						}).open();
 					} catch (e) {
 						console.error("Failed to fetch models:", e);
-						new Notice("Could not fetch models. Check server URL and connection.");
+						new Notice(getLLMErrorMessage(e, "Could not fetch models. Check server URL and connection."));
 					} finally {
 						btn.setDisabled(false);
 						btn.setButtonText("Browse");
@@ -1364,7 +1698,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					try {
 						btn.setDisabled(true);
 						btn.setButtonText("Loading...");
-						const models = await fetchAvailableModels(this.plugin.settings, "embedding");
+						const models = await this.plugin.llmClient.listModels("embedding");
 						if (models.length === 0) {
 							new Notice("No models found on server");
 							return;
@@ -1376,7 +1710,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						}).open();
 					} catch (e) {
 						console.error("Failed to fetch models:", e);
-						new Notice("Could not fetch models. Check server URL and connection.");
+						new Notice(getLLMErrorMessage(e, "Could not fetch models. Check server URL and connection."));
 					} finally {
 						btn.setDisabled(false);
 						btn.setButtonText("Browse");
@@ -1576,6 +1910,57 @@ class OLLMSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+
+		this.addHeading(containerEl, "Vault Radar");
+
+		containerEl.createEl("p", {
+			text: "Turn recent Markdown changes into a small, cited brief: forgotten commitments, stalled work, useful connections, and a concrete next action. Radar reads notes but never edits them.",
+			cls: "setting-item-description",
+		});
+
+		new Setting(containerEl)
+			.setName("Automatic daily brief")
+			.setDesc("Off by default. When enabled, once every 24 hours Radar sends bounded excerpts from changed notes and limited prior-card feedback metadata to your configured chat server. Enabling starts the 24-hour clock; it does not run immediately.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.vaultRadarAutoRun)
+					.onChange(async (value) => {
+						this.plugin.settings.vaultRadarAutoRun = value;
+						this.plugin.settings.vaultRadarAutoRunEnabledAt = value ? Date.now() : 0;
+						await this.plugin.saveSettings();
+						this.plugin.startVaultRadarTimer();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Changed notes per run")
+			.setDesc("Caps how many recently changed Markdown notes are read in one brief (3–25). Long notes are excerpted and the total prompt is bounded.")
+			.addText((text) => {
+				text.inputEl.type = "number";
+				text.inputEl.min = "3";
+				text.inputEl.max = "25";
+				text
+					.setValue(String(this.plugin.settings.vaultRadarMaxNotes))
+					.onChange(async (value) => {
+						const parsed = Number.parseInt(value, 10);
+						if (!Number.isFinite(parsed)) {
+							return;
+						}
+						this.plugin.settings.vaultRadarMaxNotes = Math.min(25, Math.max(3, parsed));
+						await this.plugin.saveSettings();
+						this.plugin.refreshVaultRadarConfiguration();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("Open Vault Radar")
+			.setDesc("Review the current brief, run a manual scan, and rate or snooze insight cards.")
+			.addButton((button) => button
+				.setButtonText("Open")
+				.setCta()
+				.onClick(() => {
+					void this.plugin.openVaultRadarView({ focusRunButton: true });
+				}));
 
 		this.addHeading(containerEl, "Workflow Automation");
 
@@ -2132,30 +2517,6 @@ class OLLMSettingTab extends PluginSettingTab {
 	}
 }
 
-interface ChatCompletionResponse {
-	choices: Array<{
-		message: {
-			content: string;
-			reasoning?: string;
-		};
-	}>;
-}
-
-interface StreamedChatCompletionChunk {
-	choices?: Array<{
-		delta?: {
-			content?: string;
-		};
-		message?: {
-			content?: string;
-		};
-	}>;
-}
-
-interface ModelListResponse {
-	data: Array<{ id?: string }>;
-}
-
 interface TavilySearchResult {
 	title: string;
 	content: string;
@@ -2202,42 +2563,8 @@ interface ObsidianCommandApp extends App {
 	};
 }
 
-function buildChatHeaders(plugin: OLocalLLMPlugin): Record<string, string> {
-	return buildOpenAIHeaders(getChatApiKey(plugin.settings));
-}
-
-function parseStreamedChatCompletion(responseText: string): string {
-	const chunks: string[] = [];
-	for (const line of responseText.split("\n")) {
-		const trimmedLine = line.trim();
-		if (!trimmedLine || !trimmedLine.startsWith("data:")) {
-			continue;
-		}
-		const payload = trimmedLine.replace(/^data:\s*/, "");
-		if (payload === "[DONE]") {
-			continue;
-		}
-		try {
-			const data = JSON.parse(payload) as StreamedChatCompletionChunk;
-			const content = data.choices?.[0]?.delta?.content;
-			if (content) {
-				chunks.push(content);
-			}
-		} catch {
-			// Some local servers append keep-alive lines to SSE streams.
-		}
-	}
-
-	if (chunks.length > 0) {
-		return chunks.join("");
-	}
-
-	try {
-		const data = JSON.parse(responseText) as StreamedChatCompletionChunk;
-		return data.choices?.[0]?.message?.content || "";
-	} catch {
-		return "";
-	}
+function getLLMErrorMessage(error: unknown, fallback: string): string {
+	return error instanceof LLMClientError ? error.message : fallback;
 }
 
 async function processText(
@@ -2257,50 +2584,24 @@ async function processText(
 		? plugin.conversationHistory.slice(-plugin.settings.maxConvHistory)
 		: [];
 
-	const body = {
-		model: plugin.settings.llmModel,
-		messages: [
-			{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
-			...historyEntries.reduce((acc, entry) => {
-				acc.push({ role: "user", content: entry.prompt });
-				acc.push({ role: "assistant", content: entry.response });
-				return acc;
-			}, [] as { role: string; content: string }[]),
-			{ role: "user", content: prompt + ": " + selectedText },
-		],
-		temperature: plugin.settings.temperature,
-		max_tokens: plugin.settings.maxTokens,
-		stream: plugin.settings.stream,
-	};
+	const messages: ChatMessage[] = [
+		{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
+		...historyEntries.reduce((acc, entry) => {
+			acc.push({ role: "user", content: entry.prompt });
+			acc.push({ role: "assistant", content: entry.response });
+			return acc;
+		}, [] as ChatMessage[]),
+		{ role: "user", content: prompt + ": " + selectedText },
+	];
 
 	try {
-		const response = await requestUrl({
-			url: getChatCompletionsUrl(plugin.settings),
-			method: "POST",
-			headers: buildChatHeaders(plugin),
-			body: JSON.stringify(body),
+		let responseStr = await plugin.llmClient.complete({
+			model: plugin.settings.llmModel,
+			messages,
+			temperature: plugin.settings.temperature,
+			maxTokens: plugin.settings.maxTokens,
+			bufferedStream: plugin.settings.stream,
 		});
-
-		if (response.status < 200 || response.status >= 300) {
-			if (response.status === 401) {
-				throw new Error("Authentication failed (401). Check your API key in plugin settings.");
-			}
-			throw new Error(
-				"Error generating text (requestUrl): " + response.text
-			);
-		}
-
-		let responseStr: string;
-		if (plugin.settings.stream) {
-			responseStr = parseStreamedChatCompletion(response.text);
-		} else {
-			const data = response.json as ChatCompletionResponse;
-			const content = data?.choices?.[0]?.message?.content;
-			if (typeof content !== "string") {
-				throw new Error("Unexpected server response — no completion content returned.");
-			}
-			responseStr = content;
-		}
 
 		if (plugin.settings.extractReasoningResponses) {
 			const markers = parseReasoningMarkers(plugin.settings.reasoningMarkers || '');
@@ -2327,12 +2628,7 @@ async function processText(
 		}
 	} catch (error) {
 		console.error("Error during request:", error);
-		const errMsg = error instanceof Error ? error.message : String(error);
-		if (errMsg.includes("401") || errMsg.toLowerCase().includes("unauthorized")) {
-			new Notice("Authentication failed (401). Check your API key in plugin settings.");
-		} else {
-			new Notice("Error generating text. Check plugin console for details.");
-		}
+		new Notice(getLLMErrorMessage(error, "Error generating text. Check plugin console for details."));
 	}
 	plugin.statusBarItemEl?.setText("LLM Helper: Ready");
 }
@@ -2510,16 +2806,11 @@ async function processChatInput(
 		recordConversationHistory(conversationHistory, text, renderedMessage, plugin.settings.maxConvHistory);
 		new Notice("Chat response ready.");
 		scrollToBottom(chatContainer);
-	} catch (error) {
-		console.error("Error during request:", error);
-		const errMsg = error instanceof Error ? error.message : String(error);
-		if (errMsg.includes("401") || errMsg.toLowerCase().includes("unauthorized")) {
-			new Notice("Authentication failed (401). Check your API key in plugin settings.");
-		} else {
-			new Notice("Error communicating with LLM server. Check plugin console for details.");
+		} catch (error) {
+			console.error("Error during request:", error);
+			new Notice(getLLMErrorMessage(error, "Error communicating with LLM server. Check plugin console for details."));
+			hideThinkingIndicator(chatHistoryEl);
 		}
-		hideThinkingIndicator(chatHistoryEl);
-	}
 }
 
 function showThinkingIndicator(chatHistoryEl: HTMLElement) {

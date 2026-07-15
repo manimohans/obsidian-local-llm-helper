@@ -15,18 +15,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Use Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "20.x"
           cache: npm
 
-      - name: Build plugin
+      - name: Verify release metadata matches tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          npm ci
-          npm run build
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          const tag = process.env.RELEASE_TAG.replace(/^v/, "");
+          const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+          const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
+          const checks = [
+            ["manifest.json", manifest.version],
+            ["package.json", pkg.version],
+            ["package-lock.json", lock.version],
+            ["package-lock.json root package", lock.packages?.[""]?.version],
+          ];
+          const mismatches = checks.filter(([, version]) => version !== tag);
+          if (versions[tag] !== manifest.minAppVersion) {
+            mismatches.push(["versions.json", versions[tag] ?? "missing"]);
+          }
+          if (mismatches.length > 0) {
+            const detail = mismatches
+              .map(([file, version]) => `${file}: ${version}`)
+              .join("\n");
+            throw new Error(`Release tag ${tag} does not match release metadata:\n${detail}`);
+          }
+          console.log(`Release metadata verified for ${tag} (Obsidian ${manifest.minAppVersion}+).`);
+          NODE
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test and build plugin
+        run: npm run check
 
       - name: Generate artifact attestations
         uses: actions/attest-build-provenance@v3
@@ -40,9 +72,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-
-          gh release create "$tag" \
-            --title="$tag" \
-            --draft \
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title="$GITHUB_REF_NAME" \
+            --notes-from-tag \
             main.js manifest.json styles.css

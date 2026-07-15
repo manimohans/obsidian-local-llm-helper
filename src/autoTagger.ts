@@ -1,6 +1,7 @@
 import { App, Editor, EditorPosition, MarkdownView, Notice } from "obsidian";
 import type { OLocalLLMSettings } from "../main";
 import { LLMClientError, OpenAICompatibleClient } from "./llmClient";
+import { buildTagMessages } from "./prompts";
 
 export async function generateAndAppendTags(
 	app: App,
@@ -20,7 +21,7 @@ export async function generateAndAppendTags(
 	const textToProcess = selectedText || fullText;
 
 	try {
-		const tags = await generateTags(textToProcess, settings, llmClient);
+		const tags = await generateTags(textToProcess, fullText, settings, llmClient);
 		if (tags.length === 0) {
 			new Notice("No valid tags were generated. Try again or adjust the text.");
 			return;
@@ -35,28 +36,46 @@ export async function generateAndAppendTags(
 	}
 }
 
-async function generateTags(
+export async function generateTags(
 	text: string,
+	fullNoteText: string,
 	settings: OLocalLLMSettings,
 	llmClient: OpenAICompatibleClient,
 ): Promise<string[]> {
-	const prompt = "Generate 3-5 relevant hashtags for the following text. Return only hashtags starting with #, separated by spaces. No explanations:";
-
 	const content = await llmClient.complete({
 		model: settings.llmModel,
-		messages: [
-			{ role: "system", content: "You are a helpful assistant that generates relevant hashtags." },
-			{ role: "user", content: `${prompt}\n\n${text}` }
-		],
+		messages: buildTagMessages(text, extractExistingTags(fullNoteText)),
 		temperature: settings.temperature,
 		maxTokens: settings.maxTokens,
 	});
-	const generatedTags = content.trim().split(/\s+/);
-	// Obsidian tags allow letters (incl. unicode), digits, -, _, and / for nesting
-	return generatedTags
-		.filter((tag: string) => /^#?[\p{L}\p{N}_][\p{L}\p{N}_/-]*$/u.test(tag))
-		.map((tag: string) => tag.startsWith('#') ? tag : `#${tag}`)
-		.slice(0, 5);
+	return excludeExistingTags(parseGeneratedTags(content), fullNoteText);
+}
+
+export function parseGeneratedTags(content: string): string[] {
+	const hashtagPattern = /#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_/-]*/gu;
+	const candidates = content.match(hashtagPattern) ?? [];
+
+	const unique = new Map<string, string>();
+	for (const tag of candidates) {
+		const normalized = tag.startsWith("#") ? tag : `#${tag}`;
+		const key = normalized.toLowerCase();
+		if (!unique.has(key)) {
+			unique.set(key, normalized);
+		}
+	}
+	return Array.from(unique.values()).slice(0, 5);
+}
+
+export function excludeExistingTags(tags: string[], noteText: string): string[] {
+	const existing = new Set(
+		extractExistingTags(noteText).map((tag) => tag.toLowerCase()),
+	);
+	return tags.filter((tag) => !existing.has(tag.toLowerCase()));
+}
+
+export function extractExistingTags(noteText: string): string[] {
+	const hashtagPattern = /#[\p{L}\p{N}_][\p{L}\p{M}\p{N}_/-]*/gu;
+	return noteText.match(hashtagPattern) ?? [];
 }
 
 function appendTags(editor: Editor, tags: string[]) {

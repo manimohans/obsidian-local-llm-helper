@@ -8,6 +8,11 @@ import {
 	type IndexedSourceType,
 } from "./attachmentExtractor";
 import { getEffectiveEmbeddingServerAddress } from "./providerSettings";
+import {
+	buildNotesChatMessages,
+	buildRagSourceLabel,
+	buildRetrievedNoteContext,
+} from "./prompts";
 import { debugLog } from "./debug";
 
 interface IndexedDocument {
@@ -242,12 +247,7 @@ export class RAGManager {
 		}
 
 		const sources = this.buildSourceReferences(docs);
-		const context = docs
-			.map((doc, index) => {
-				const source = this.getContextSourceLabel(doc.metadata, index);
-				return `[Source: ${source}]\n${doc.pageContent}`;
-			})
-			.join("\n\n---\n\n");
+		const context = this.buildRetrievedNoteContext(docs);
 
 		return { context, sources };
 	}
@@ -268,25 +268,13 @@ export class RAGManager {
 				throw new Error(`No indexed content matched the selected scope (${this.describeScope(resolvedScope)}).`);
 			}
 
-			const context = docs
-				.map((doc, index) => `[${this.getContextSourceLabel(doc.metadata, index)}]\n${doc.pageContent}`)
-				.join("\n\n---\n\n");
+			const context = this.buildRetrievedNoteContext(docs);
 
-			const systemPrompt = `You are a helpful assistant answering questions based on the user's notes.
-Use the context below to answer the question. If the context doesn't contain relevant information, say so.
-Be concise and cite specific notes when possible.
-
-Context:
-${context}`;
-
-				const answer = await this.llmClient.complete({
-					model: this.settings.llmModel,
-					temperature: this.settings.temperature,
-					messages: [
-						{ role: "system", content: systemPrompt },
-						{ role: "user", content: query },
-					],
-				});
+			const answer = await this.llmClient.complete({
+				model: this.settings.llmModel,
+				temperature: this.settings.temperature,
+				messages: buildNotesChatMessages(query, context),
+			});
 
 			const sources = this.buildSourceReferences(docs);
 
@@ -298,6 +286,13 @@ ${context}`;
 			console.error("RAG Error:", error);
 			throw error;
 		}
+	}
+
+	private buildRetrievedNoteContext(docs: IndexedDocument[]): string {
+		return buildRetrievedNoteContext(docs.map((doc, index) => ({
+			sourceLabel: this.getContextSourceLabel(doc.metadata, index),
+			excerpt: doc.pageContent,
+		})));
 	}
 
 	private async searchDocuments(query: string, scope: RAGQueryScope): Promise<IndexedDocument[]> {
@@ -1190,8 +1185,7 @@ ${context}`;
 	}
 
 	private formatSourceLabel(metadata: EmbeddingMetadata): string {
-		const pageLabel = metadata.pageNumber ? ` (page ${metadata.pageNumber})` : "";
-		return `${metadata.fileName || metadata.source}${pageLabel}`;
+		return buildRagSourceLabel(metadata.source, metadata.fileName, metadata.pageNumber);
 	}
 
 	private createEmptySourceCounts(): Record<IndexedSourceType, number> {

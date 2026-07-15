@@ -1,20 +1,5 @@
 import { App, Modal, Setting } from "obsidian";
-
-export interface PromptOption {
-	label: string;
-	prompt: string;
-}
-
-const PRESET_PROMPTS: PromptOption[] = [
-	{ label: "Fix grammar & spelling", prompt: "Fix any grammar and spelling mistakes in the following text, keeping the original meaning and tone:" },
-	{ label: "Make it concise", prompt: "Make the following text more concise while preserving the key information:" },
-	{ label: "Expand with more detail", prompt: "Expand the following text with more detail and explanation:" },
-	{ label: "Simplify language", prompt: "Simplify the following text to make it easier to understand:" },
-	{ label: "Make it formal", prompt: "Rewrite the following text in a more formal, professional tone:" },
-	{ label: "Make it casual", prompt: "Rewrite the following text in a more casual, conversational tone:" },
-	{ label: "Convert to bullet points", prompt: "Convert the following text into clear bullet points:" },
-	{ label: "Improve clarity", prompt: "Improve the clarity and readability of the following text:" },
-];
+import { EDIT_PRESET_PROMPTS } from "./prompts";
 
 export class PromptPickerModal extends Modal {
 	private onSelect: (prompt: string) => void;
@@ -39,7 +24,7 @@ export class PromptPickerModal extends Modal {
 		// Preset prompts section
 		const presetsContainer = contentEl.createDiv({ cls: "prompt-presets-container" });
 
-		for (const preset of PRESET_PROMPTS) {
+		for (const preset of EDIT_PRESET_PROMPTS) {
 			const btn = presetsContainer.createEl("button", {
 				text: preset.label,
 				cls: "prompt-preset-button"
@@ -70,7 +55,7 @@ export class PromptPickerModal extends Modal {
 					const customPrompt = this.customPromptInput.value.trim();
 					if (customPrompt) {
 						this.close();
-						this.onSelect(customPrompt + ":");
+						this.onSelect(customPrompt);
 					}
 				}));
 
@@ -83,7 +68,7 @@ export class PromptPickerModal extends Modal {
 				const customPrompt = this.customPromptInput.value.trim();
 				if (customPrompt) {
 					this.close();
-					this.onSelect(customPrompt + ":");
+					this.onSelect(customPrompt);
 				}
 			}
 		});

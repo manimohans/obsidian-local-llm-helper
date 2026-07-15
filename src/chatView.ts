@@ -310,7 +310,7 @@ export class ChatView extends ItemView {
 			? "Index notes to chat across your vault."
 			: this.mode === "notes"
 				? "Ask about your notes, current note, folder, or tags."
-				: "Ask about the active note or selection.";
+				: "Ask anything, or select text in a note to include it.";
 		this.welcomeEl.setText(message);
 	}
 

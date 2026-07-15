@@ -24,7 +24,7 @@ import { BacklinkGenerator } from './src/backlinkGenerator';
 import { RAGChatModal } from './src/ragChatModal';
 import { ChatView, CHAT_VIEW_TYPE, type ChatViewOpenOptions } from './src/chatView';
 import { PromptPickerModal } from './src/promptPickerModal';
-import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict, modifyPrompt } from './src/personas';
+import { Persona, PersonasDict, DEFAULT_PERSONAS, buildPersonasDict } from './src/personas';
 import { CustomPrompt, generatePromptId, SelectPromptModal } from './src/customPrompts';
 import { extractActualResponse, parseReasoningMarkers, DEFAULT_REASONING_MARKERS } from './src/reasoningExtractor';
 import { RelatedNotesContext, RelatedNotesView, RELATED_NOTES_VIEW_TYPE } from './src/relatedNotesView';
@@ -36,15 +36,27 @@ import {
 import { VaultAgentService, type ChatEnvironmentContext, type ConversationEntry, getActiveChatContext } from './src/vaultAgent';
 import { submitGeneralChat, updateConversationHistory as recordConversationHistory } from './src/chatSession';
 import { debugLog, setDebugLogging } from './src/debug';
+import { LLMClientError, OpenAICompatibleClient } from './src/llmClient';
 import {
-	type ChatMessage,
-	LLMClientError,
-	OpenAICompatibleClient,
-} from './src/llmClient';
+	BUILT_IN_TEXT_PROMPTS,
+	buildSearchMaterial,
+	buildTextActionMessages,
+	DEFAULT_CUSTOM_TEXT_PROMPT,
+	migrateLegacyDefaultCustomPrompt,
+	NEWS_SEARCH_SYNTHESIS_PROMPT,
+	type GroundedSearchResult,
+	type TextActionMode,
+	WEB_SEARCH_SYNTHESIS_PROMPT,
+} from './src/prompts';
 import { obsidianRequestTransport } from './src/obsidianRequestTransport';
 import { WorkflowModal } from './src/workflowModal';
 import { WorkflowRunnerService, createDefaultWorkflowDefaults, mergeWorkflowDefaults } from './src/workflowRunner';
 import type { WorkflowDefaults } from './src/workflowTypes';
+import {
+	applyTextActionResult,
+	captureTextActionTarget,
+	type TextActionTarget,
+} from './src/textActionTarget';
 import {
 	buildInsightCanvas,
 	getCollisionSafeInsightCanvasPath,
@@ -126,7 +138,7 @@ const DEFAULT_SETTINGS: OLocalLLMSettings = {
 	temperature: 0.7,
 	providerType: "ollama",
 	stream: false,
-	customPrompt: "create a todo list from the following text:",
+	customPrompt: DEFAULT_CUSTOM_TEXT_PROMPT,
 	outputMode: "replace",
 	personas: "default",
 	maxConvHistory: 0,
@@ -172,6 +184,7 @@ interface TextAction {
 	menuTitle: string;
 	icon: string;
 	prompt: string;
+	mode?: TextActionMode;
 }
 
 const TEXT_ACTIONS: Record<string, TextAction> = {
@@ -180,34 +193,34 @@ const TEXT_ACTIONS: Record<string, TextAction> = {
 		commandName: "Text: Summarize",
 		menuTitle: "Summarize",
 		icon: "minimize-2",
-		prompt: "Summarize the following text concisely. Preserve markdown formatting:",
+		prompt: BUILT_IN_TEXT_PROMPTS.summarize,
 	},
 	makeProfessional: {
 		commandId: "makeitprof-selected-text",
 		commandName: "Text: Make professional",
 		menuTitle: "Make professional",
 		icon: "briefcase",
-		prompt: "Rewrite the following text to be more professional and polished. Preserve markdown formatting:",
+		prompt: BUILT_IN_TEXT_PROMPTS.makeProfessional,
 	},
 	actionItems: {
 		commandId: "actionitems-selected-text",
 		commandName: "Text: Generate action items",
 		menuTitle: "Generate action items",
 		icon: "list-todo",
-		prompt: "Generate a clear list of action items from the following text. Use bullet points or numbers as appropriate:",
+		prompt: BUILT_IN_TEXT_PROMPTS.actionItems,
 	},
 	useAsPrompt: {
 		commandId: "gentext-selected-text",
 		commandName: "Text: Use as prompt",
 		menuTitle: "Use as prompt",
 		icon: "lightbulb",
-		prompt: "Respond to the following prompt:",
+		prompt: BUILT_IN_TEXT_PROMPTS.useAsPrompt,
+		mode: "request",
 	},
 };
 
 export default class OLocalLLMPlugin extends Plugin {
 	settings: OLocalLLMSettings;
-	conversationHistory: ConversationEntry[] = [];
 	isKillSwitchActive: boolean = false;
 	autoIndexTimer: number | undefined;
 	isIndexing: boolean = false;
@@ -412,7 +425,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			this.addCommand({
 				id: action.commandId,
 				name: action.commandName,
-				editorCallback: () => this.runTextAction(action.prompt),
+				editorCallback: () => this.runTextAction(action.prompt, undefined, action.mode),
 			});
 		}
 
@@ -477,9 +490,9 @@ export default class OLocalLLMPlugin extends Plugin {
 			name: "Web: Search",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false;
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processWebSearch(selectedText, this);
+				const target = this.getTextActionTarget();
+				if (target?.selectedText.length) {
+					void processWebSearch(target.selectedText, this, target);
 				} else {
 					new Notice("Please select some text first");
 				}
@@ -490,9 +503,9 @@ export default class OLocalLLMPlugin extends Plugin {
 			id: "web-news-search",
 			name: "Web: Search news",
 			editorCallback: (editor: Editor, view: MarkdownView) => {
-				let selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
-					void processNewsSearch(selectedText, this);
+				const target = this.getTextActionTarget();
+				if (target?.selectedText.length) {
+					void processNewsSearch(target.selectedText, this, target);
 				} else {
 					new Notice("Please select some text first");
 				}
@@ -581,7 +594,7 @@ export default class OLocalLLMPlugin extends Plugin {
 					item
 						.setTitle(action.menuTitle)
 						.setIcon(action.icon)
-						.onClick(() => this.runTextAction(action.prompt))
+						.onClick(() => this.runTextAction(action.prompt, undefined, action.mode))
 				);
 			}
 
@@ -602,7 +615,11 @@ export default class OLocalLLMPlugin extends Plugin {
 				item
 					.setTitle(TEXT_ACTIONS.useAsPrompt.menuTitle)
 					.setIcon(TEXT_ACTIONS.useAsPrompt.icon)
-					.onClick(() => this.runTextAction(TEXT_ACTIONS.useAsPrompt.prompt))
+					.onClick(() => this.runTextAction(
+						TEXT_ACTIONS.useAsPrompt.prompt,
+						undefined,
+						TEXT_ACTIONS.useAsPrompt.mode,
+					))
 			);
 
 			menu.addItem((item) =>
@@ -632,9 +649,9 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("Web search")
 					.setIcon("globe")
 					.onClick(async () => {
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							void processWebSearch(selectedText, this);
+						const target = this.getTextActionTarget();
+						if (target?.selectedText.length) {
+							void processWebSearch(target.selectedText, this, target);
 						}
 					})
 			);
@@ -644,9 +661,9 @@ export default class OLocalLLMPlugin extends Plugin {
 					.setTitle("News search")
 					.setIcon("newspaper")
 					.onClick(async () => {
-						let selectedText = this.getSelectedText();
-						if (selectedText.length > 0) {
-							void processNewsSearch(selectedText, this);
+						const target = this.getTextActionTarget();
+						if (target?.selectedText.length) {
+							void processNewsSearch(target.selectedText, this, target);
 						}
 					})
 			);
@@ -695,28 +712,28 @@ export default class OLocalLLMPlugin extends Plugin {
 		return true;
 	}
 
-	private runTextAction(prompt: string, notice?: string) {
+	private runTextAction(prompt: string, notice?: string, mode: TextActionMode = "edit") {
 		this.isKillSwitchActive = false;
-		const selectedText = this.getSelectedText();
-		if (selectedText.length === 0) {
+		const target = this.getTextActionTarget();
+		if (!target?.selectedText.length) {
 			new Notice("Please select some text first");
 			return;
 		}
 		if (notice) {
 			new Notice(notice);
 		}
-		void processText(selectedText, prompt, this);
+		void processText(target.selectedText, prompt, this, target, mode);
 	}
 
 	private openPromptPicker() {
-		const selectedText = this.getSelectedText();
-		if (selectedText.length === 0) {
+		const target = this.getTextActionTarget();
+		if (!target?.selectedText.length) {
 			new Notice("Please select some text first");
 			return;
 		}
 		new PromptPickerModal(this.app, (prompt: string) => {
 			this.isKillSwitchActive = false;
-			void processText(selectedText, prompt, this);
+			void processText(target.selectedText, prompt, this, target);
 		}).open();
 	}
 
@@ -726,16 +743,33 @@ export default class OLocalLLMPlugin extends Plugin {
 			new Notice("No saved prompts yet. Add some in settings.");
 			return;
 		}
-		const selectedText = this.getSelectedText();
-		if (selectedText.length === 0) {
+		const target = this.getTextActionTarget();
+		if (!target?.selectedText.length) {
 			new Notice("Please select some text first");
 			return;
 		}
 		new SelectPromptModal(this.app, prompts, (chosen) => {
 			this.isKillSwitchActive = false;
 			new Notice("Running: " + chosen.title);
-			void processText(selectedText, chosen.prompt, this);
+			void processText(target.selectedText, chosen.prompt, this, target);
 		}).open();
+	}
+
+	private getTextActionTarget(): TextActionTarget | null {
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		const target = captureTextActionTarget(view);
+		if (target) {
+			return target;
+		}
+
+		if (!view) {
+			new Notice("No active view");
+		} else if (view.getMode() === "preview") {
+			new Notice("Does not work in preview mode");
+		} else {
+			new Notice("No editable Markdown note is active");
+		}
+		return null;
 	}
 
 	private getSelectedText() {
@@ -1422,6 +1456,7 @@ export default class OLocalLLMPlugin extends Plugin {
 				new Notice("LLM Helper: cleaned up stale data from plugin settings file.");
 			}
 		}
+		this.settings.customPrompt = migrateLegacyDefaultCustomPrompt(this.settings.customPrompt);
 		this.settings.workflowDefaults = mergeWorkflowDefaults(savedData?.workflowDefaults);
 		this.settings.vaultRadarAutoRun = this.settings.vaultRadarAutoRun === true;
 		this.settings.vaultRadarAutoRunEnabledAt = Number.isFinite(this.settings.vaultRadarAutoRunEnabledAt)
@@ -1481,10 +1516,10 @@ export default class OLocalLLMPlugin extends Plugin {
 			name: `Prompt: ${customPrompt.title}`,
 			editorCallback: (editor: Editor, view: MarkdownView) => {
 				this.isKillSwitchActive = false;
-				const selectedText = this.getSelectedText();
-				if (selectedText.length > 0) {
+				const target = this.getTextActionTarget();
+				if (target?.selectedText.length) {
 					new Notice("Running: " + customPrompt.title);
-					void processText(selectedText, customPrompt.prompt, this);
+					void processText(target.selectedText, customPrompt.prompt, this, target);
 				} else {
 					new Notice("Please select some text first");
 				}
@@ -1991,7 +2026,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Conversation history")
-			.setDesc("Number of previous messages to include (0-3)")
+			.setDesc("Number of previous chat exchanges to include (0-3). One-shot text actions always run independently.")
 			.addDropdown((dropdown) =>
 				dropdown
 					.addOption("0", "0")
@@ -2651,6 +2686,7 @@ interface TavilySearchResult {
 	title: string;
 	content: string;
 	url: string;
+	published_date?: string;
 }
 
 interface TavilySearchResponse {
@@ -2698,9 +2734,11 @@ function getLLMErrorMessage(error: unknown, fallback: string): string {
 }
 
 async function processText(
-	selectedText: string,
+	input: unknown,
 	iprompt: string,
-	plugin: OLocalLLMPlugin
+	plugin: OLocalLLMPlugin,
+	target: TextActionTarget,
+	mode: TextActionMode = "edit",
 ) {
 	// Reset kill switch state at the beginning of each process
 	plugin.isKillSwitchActive = false;
@@ -2708,21 +2746,13 @@ async function processText(
 	new Notice("Generating response. This takes a few seconds..");
 	plugin.statusBarItemEl?.setText("LLM Helper: Generating response...");
 
-	const prompt = modifyPrompt(iprompt, plugin.settings.personas, plugin.personasDict);
-
-	const historyEntries = plugin.settings.maxConvHistory > 0
-		? plugin.conversationHistory.slice(-plugin.settings.maxConvHistory)
-		: [];
-
-	const messages: ChatMessage[] = [
-		{ role: "system", content: "You are a helpful writing assistant. Provide clear, concise responses. When editing text, preserve the author's voice unless asked to change it." },
-		...historyEntries.reduce((acc, entry) => {
-			acc.push({ role: "user", content: entry.prompt });
-			acc.push({ role: "assistant", content: entry.response });
-			return acc;
-		}, [] as ChatMessage[]),
-		{ role: "user", content: prompt + ": " + selectedText },
-	];
+	const personaPrompt = plugin.personasDict[plugin.settings.personas]?.systemPrompt;
+	const messages = buildTextActionMessages({
+		instruction: iprompt,
+		input,
+		mode,
+		personaPrompt,
+	});
 
 	try {
 		let responseStr = await plugin.llmClient.complete({
@@ -2738,8 +2768,6 @@ async function processText(
 			responseStr = extractActualResponse(responseStr, markers);
 		}
 
-		recordConversationHistory(plugin.conversationHistory, prompt + ": " + selectedText, responseStr, plugin.settings.maxConvHistory);
-
 		if (!plugin.isKillSwitchActive) {
 			// Build the full output and insert it in one operation, so a
 			// failed request can never leave dangling format markers behind
@@ -2748,10 +2776,13 @@ async function processText(
 				output = plugin.settings.responseFormatPrepend + output + plugin.settings.responseFormatAppend;
 			}
 			if (plugin.settings.outputMode === "append") {
-				output = selectedText + "\n\n" + output;
+				output = target.selectedText + "\n\n" + output;
 			}
-			modifySelectedText(output, plugin);
-			new Notice("Text generation complete. Voila!");
+			if (applyTextActionResult(target, output)) {
+				new Notice("Text generation complete. Voila!");
+			} else {
+				new Notice("Original selection changed; generated text was not inserted.");
+			}
 		} else {
 			new Notice("Text generation stopped by kill switch");
 			plugin.isKillSwitchActive = false;
@@ -2761,27 +2792,6 @@ async function processText(
 		new Notice(getLLMErrorMessage(error, "Error generating text. Check plugin console for details."));
 	}
 	plugin.statusBarItemEl?.setText("LLM Helper: Ready");
-}
-
-function modifySelectedText(text: string, plugin: OLocalLLMPlugin) {
-	const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
-	if (!view) {
-		new Notice("No active view");
-	} else {
-		const view_mode = view.getMode();
-		switch (view_mode) {
-			case "preview":
-				new Notice("Cannot edit in preview mode");
-				break;
-			case "source":
-				if ("editor" in view) {
-					view.editor.replaceSelection(text);
-				}
-				break;
-			default:
-				new Notice("Unknown view mode");
-		}
-	}
 }
 
 export class LLMChatModal extends Modal {
@@ -3028,7 +3038,11 @@ class EditPromptModal extends Modal {
 
 //TODO: kill switch
 
-async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugin): Promise<string> {
+async function tavilySearch(
+	query: string,
+	topic: string,
+	plugin: OLocalLLMPlugin,
+): Promise<GroundedSearchResult[]> {
 	const body: {
 		query: string;
 		topic: string;
@@ -3065,9 +3079,12 @@ async function tavilySearch(query: string, topic: string, plugin: OLocalLLMPlugi
 	if (!Array.isArray(results)) {
 		throw new Error("Tavily search returned an unexpected response format.");
 	}
-	return results.map((result) =>
-		`${result.title}\n${result.content}\nSource: ${result.url}\n\n`
-	).join('');
+	return results.map((result) => ({
+		title: result.title,
+		url: result.url,
+		snippet: result.content,
+		...(result.published_date ? { publishedAt: result.published_date } : {}),
+	}));
 }
 
 function buildSearxngSearchUrl(query: string, topic: string, instanceUrl: string): string {
@@ -3086,26 +3103,32 @@ function buildSearxngSearchUrl(query: string, topic: string, instanceUrl: string
 	return searchUrl.toString();
 }
 
-function formatSearxngResults(response: SearxngSearchResponse): string {
+function formatSearxngResults(response: SearxngSearchResponse): GroundedSearchResult[] {
 	const results = response.results || [];
 	return results
 		.filter((result) => result.url && result.title)
 		.slice(0, 5)
-		.map((result) => {
-			const content = result.content ? `\n${result.content}` : "";
-			const engines = result.engines && result.engines.length > 0 ? `\nEngines: ${result.engines.join(", ")}` : "";
+		.map((result): GroundedSearchResult => {
 			const published = result.publishedDate || result.published_date;
-			const publishedLine = published ? `\nPublished: ${published}` : "";
-			return `${result.title}${content}\nSource: ${result.url}${engines}${publishedLine}\n\n`;
-		})
-		.join('');
+			return {
+				title: result.title!,
+				url: result.url!,
+				...(result.content ? { snippet: result.content } : {}),
+				...(result.engines?.length ? { engines: result.engines } : {}),
+				...(published ? { publishedAt: published } : {}),
+			};
+		});
 }
 
 function getSearchErrorMessage(error: unknown, fallback: string): string {
 	return error instanceof Error ? error.message : fallback;
 }
 
-async function searxngSearch(query: string, topic: string, plugin: OLocalLLMPlugin): Promise<string> {
+async function searxngSearch(
+	query: string,
+	topic: string,
+	plugin: OLocalLLMPlugin,
+): Promise<GroundedSearchResult[]> {
 	const response = await requestUrl({
 		url: buildSearxngSearchUrl(query, topic, plugin.settings.searxngInstanceUrl),
 		method: "GET",
@@ -3129,11 +3152,11 @@ async function searxngSearch(query: string, topic: string, plugin: OLocalLLMPlug
 		throw new Error("SearXNG search failed: " + searchResponse.error);
 	}
 
-	const context = formatSearxngResults(searchResponse);
-	if (!context) {
+	const results = formatSearxngResults(searchResponse);
+	if (results.length === 0) {
 		throw new Error("SearXNG search returned no usable results.");
 	}
-	return context;
+	return results;
 }
 
 function validateSearchProvider(settings: OLocalLLMSettings): string | null {
@@ -3150,7 +3173,11 @@ function validateSearchProvider(settings: OLocalLLMSettings): string | null {
 	return null;
 }
 
-async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
+async function processWebSearch(
+	query: string,
+	plugin: OLocalLLMPlugin,
+	target: TextActionTarget,
+) {
 	const provider = plugin.settings.searchProvider;
 
 	const providerError = validateSearchProvider(plugin.settings);
@@ -3162,12 +3189,12 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 	new Notice("Searching the web...");
 
 	try {
-		let context: string;
+		let results: GroundedSearchResult[];
 
 		if (provider === "tavily") {
-			context = await tavilySearch(query, "general", plugin);
+			results = await tavilySearch(query, "general", plugin);
 		} else if (provider === "searxng") {
-			context = await searxngSearch(query, "general", plugin);
+			results = await searxngSearch(query, "general", plugin);
 		} else {
 			const response = await requestUrl({
 				url: `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=5&summary=1&extra_snippets=1&text_decorations=1&result_filter=web,discussions,faq,news&spellcheck=1`,
@@ -3187,17 +3214,29 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 			if (!Array.isArray(searchResults)) {
 				throw new Error("Brave search returned an unexpected response format.");
 			}
-			context = searchResults.map((result) => {
-				const snippets = result.extra_snippets ?
-					'\nAdditional Context:\n' + result.extra_snippets.join('\n') : '';
-				return `${result.title}\n${result.description}${snippets}\nSource: ${result.url}\n\n`;
-			}).join('');
+			results = searchResults.map((result) => ({
+				title: result.title,
+				url: result.url,
+				snippet: result.description,
+				...(result.extra_snippets?.length
+					? { additionalSnippets: result.extra_snippets }
+					: {}),
+			}));
+		}
+		if (results.length === 0) {
+			throw new Error("Web search returned no usable results.");
+		}
+		const searchMaterial = buildSearchMaterial({ query, results });
+		if (searchMaterial.results.length === 0) {
+			throw new Error("Web search returned no results with valid source URLs.");
 		}
 
 		void processText(
-			`Search results for "${query}":\n\n${context}`,
-			"Summarize these search results concisely. Use bullet points for key facts and cite sources inline as [Source](url).",
-			plugin
+			searchMaterial,
+			WEB_SEARCH_SYNTHESIS_PROMPT,
+			plugin,
+			target,
+			"web-search",
 		);
 
 	} catch (error) {
@@ -3206,7 +3245,11 @@ async function processWebSearch(query: string, plugin: OLocalLLMPlugin) {
 	}
 }
 
-async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
+async function processNewsSearch(
+	query: string,
+	plugin: OLocalLLMPlugin,
+	target: TextActionTarget,
+) {
 	const provider = plugin.settings.searchProvider;
 
 	const providerError = validateSearchProvider(plugin.settings);
@@ -3218,12 +3261,12 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 	new Notice("Searching for news...");
 
 	try {
-		let context: string;
+		let results: GroundedSearchResult[];
 
 		if (provider === "tavily") {
-			context = await tavilySearch(query, "news", plugin);
+			results = await tavilySearch(query, "news", plugin);
 		} else if (provider === "searxng") {
-			context = await searxngSearch(query, "news", plugin);
+			results = await searxngSearch(query, "news", plugin);
 		} else {
 			const response = await requestUrl({
 				url: `https://api.search.brave.com/res/v1/news/search?q=${encodeURIComponent(query)}&count=5&search_lang=en&freshness=pd`,
@@ -3243,15 +3286,28 @@ async function processNewsSearch(query: string, plugin: OLocalLLMPlugin) {
 			if (!Array.isArray(newsResults)) {
 				throw new Error("Brave news search returned an unexpected response format.");
 			}
-			context = newsResults.map((result) =>
-				`${result.title}\n${result.description}\nSource: ${result.url}\nPublished: ${result.published_time}\n\n`
-			).join('');
+			results = newsResults.map((result) => ({
+				title: result.title,
+				url: result.url,
+				snippet: result.description,
+				...(result.published_time ? { publishedAt: result.published_time } : {}),
+			}));
+		}
+		if (results.length === 0) {
+			throw new Error("News search returned no usable results.");
+		}
+		const runTimestamp = new Date().toISOString();
+		const searchMaterial = buildSearchMaterial({ query, results, runTimestamp });
+		if (searchMaterial.results.length === 0) {
+			throw new Error("News search returned no results with valid source URLs.");
 		}
 
 		void processText(
-			`News results for "${query}":\n\n${context}`,
-			"Summarize these news results concisely. List key developments as bullet points and cite sources inline as [Source](url).",
-			plugin
+			searchMaterial,
+			NEWS_SEARCH_SYNTHESIS_PROMPT,
+			plugin,
+			target,
+			"news-search",
 		);
 	} catch (error) {
 		console.error("News search error:", error);

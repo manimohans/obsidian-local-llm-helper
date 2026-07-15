@@ -7,6 +7,7 @@ import {
 	type CompletionRequest,
 	OpenAICompatibleClient,
 } from "./llmClient";
+import { buildVaultChatSystemPrompt, buildVaultChatUserMessage } from "./prompts";
 
 export interface ConversationEntry {
 	prompt: string;
@@ -84,7 +85,15 @@ interface RenderAgentResponseOptions {
 	scrollToBottom?: () => void;
 }
 
-const ACTION_BLOCK_PATTERN = /<vault-actions>\s*([\s\S]*?)\s*<\/vault-actions>/i;
+const ACTION_BLOCK_PATTERN = /^\s*<vault-actions>\s*([\s\S]*?)\s*<\/vault-actions>\s*$/i;
+const ANY_ACTION_BLOCK_PATTERN = /<vault-actions>\s*([\s\S]*?)\s*<\/vault-actions>/i;
+
+export function isSafeVaultMarkdownPath(path: string): boolean {
+	const normalized = path.replace(/\\/g, "/").replace(/^\/+/, "");
+	const parts = normalized.split("/");
+	return normalized.toLowerCase().endsWith(".md")
+		&& parts.every((part) => part.length > 0 && part !== "." && part !== ".." && !part.startsWith("."));
+}
 
 export class VaultAgentService {
 	constructor(
@@ -96,7 +105,10 @@ export class VaultAgentService {
 	async submitChat(request: SubmitChatRequest): Promise<AgentResponse> {
 		let rawResponse = await this.llmClient.complete(this.buildRequestBody(request));
 
-		if (this.plugin.settings.extractReasoningResponses) {
+		if (
+			this.plugin.settings.extractReasoningResponses
+			|| this.plugin.settings.enableVaultActions
+		) {
 			const markers = parseReasoningMarkers(this.plugin.settings.reasoningMarkers || "");
 			rawResponse = extractActualResponse(rawResponse, markers);
 		}
@@ -106,63 +118,31 @@ export class VaultAgentService {
 
 	private buildRequestBody(request: SubmitChatRequest): CompletionRequest {
 		const isRagChat = Boolean(request.ragContext);
-		const systemParts = [
-			isRagChat
-				? [
-					"You are a helpful assistant answering questions based on the user's notes.",
-					"Use the retrieved note context to answer the question.",
-					"If the context doesn't contain relevant information, say so.",
-					"Be concise and cite specific notes when possible.",
-				].join("\n")
-				: "You are a helpful writing and note-taking assistant inside Obsidian.",
-			this.plugin.personasDict[this.plugin.settings.personas]?.systemPrompt?.trim() || "",
-			this.plugin.settings.enableVaultActions
-				? [
-					"Vault actions are enabled.",
-					"When the user asks you to create a note, append to a note, or replace the current selection, propose actions instead of claiming the changes were already made.",
-					"Never say a vault write was completed unless the user approves it in the UI.",
-					"Only emit actions inside a single <vault-actions>...</vault-actions> block.",
-					"Inside that block, output strict JSON with shape {\"message\": string, \"actions\": AgentAction[]}.",
-					"Allowed actions:",
-					"- create_note: {\"type\":\"create_note\",\"path\":string?,\"title\":string?,\"content\":string}",
-					"- append_to_note: {\"type\":\"append_to_note\",\"target\":string,\"content\":string}",
-					"- replace_selection: {\"type\":\"replace_selection\",\"content\":string}",
-					"If the request is ambiguous, ask a clarifying question in normal text and do not emit actions.",
-					"If no write is needed, answer normally and do not emit a vault-actions block.",
-				].join("\n")
-				: "Vault actions are disabled. Answer in plain text only and do not emit vault action JSON.",
-		].filter(Boolean);
-
-		const contextParts: string[] = [];
-		if (request.context.activeFilePath) {
-			contextParts.push(`Active note path: ${request.context.activeFilePath}`);
-		}
-		if (request.context.activeNoteTitle) {
-			contextParts.push(`Active note title: ${request.context.activeNoteTitle}`);
-		}
-		if (request.context.selectedText) {
-			contextParts.push(`Selected text:\n${request.context.selectedText}`);
-		}
-		if (request.ragContext) {
-			contextParts.push(`Retrieved note context:\n${request.ragContext}`);
-		}
+		const personaPrompt = this.plugin.personasDict[this.plugin.settings.personas]?.systemPrompt;
+		const systemPrompt = buildVaultChatSystemPrompt({
+			isRagChat,
+			personaPrompt,
+			enableVaultActions: this.plugin.settings.enableVaultActions,
+		});
+		const context: Record<string, string> = {
+			activeNotePath: request.context.activeFilePath || "",
+			activeNoteTitle: request.context.activeNoteTitle || "",
+			selectionFilePath: request.context.selectionFilePath || "",
+			selectedText: request.context.selectedText || "",
+			retrievedNoteContext: request.ragContext || "",
+		};
 
 		const messages: ChatMessage[] = [
-			{ role: "system", content: systemParts.join("\n\n") },
+			{ role: "system", content: systemPrompt },
 			...this.getRecentConversation(request.conversationHistory).flatMap<ChatMessage>((entry) => [
 				{ role: "user", content: entry.prompt },
 				{ role: "assistant", content: entry.response },
 			]),
+			{
+				role: "user",
+				content: buildVaultChatUserMessage({ message: request.message, context }),
+			},
 		];
-
-		if (contextParts.length > 0) {
-			messages.push({
-				role: "system",
-				content: `Current workspace context:\n${contextParts.join("\n\n")}`,
-			});
-		}
-
-		messages.push({ role: "user", content: request.message });
 
 		return {
 			model: this.plugin.settings.llmModel,
@@ -183,10 +163,19 @@ export class VaultAgentService {
 
 	private async parseAgentResponse(rawResponse: string, context: ChatEnvironmentContext, ragSources?: SourceReference[]): Promise<AgentResponse> {
 		const blockMatch = rawResponse.match(ACTION_BLOCK_PATTERN);
+		const mixedBlockMatch = blockMatch ? undefined : rawResponse.match(ANY_ACTION_BLOCK_PATTERN);
+		if (mixedBlockMatch) {
+			return {
+				message: "I could not safely prepare a vault action because the action block was mixed with other response text.",
+				rawResponse,
+				rawActionJson: mixedBlockMatch[1]?.trim(),
+				actions: [],
+				parseError: "Vault action block must be the only response content.",
+				sources: ragSources,
+			};
+		}
 		const rawActionJson = blockMatch?.[1]?.trim();
-		const messageOutsideBlock = blockMatch
-			? rawResponse.replace(blockMatch[0], "").trim()
-			: rawResponse.trim();
+		const messageOutsideBlock = blockMatch ? "" : rawResponse.trim();
 
 		if (!rawActionJson) {
 			return {
@@ -197,9 +186,9 @@ export class VaultAgentService {
 			};
 		}
 
-		let envelope: AgentEnvelope;
+		let parsedEnvelope: unknown;
 		try {
-			envelope = JSON.parse(rawActionJson) as AgentEnvelope;
+			parsedEnvelope = JSON.parse(rawActionJson) as unknown;
 		} catch (error) {
 			return {
 				message: messageOutsideBlock || "I could not safely prepare a vault action because the action payload was invalid.",
@@ -210,6 +199,17 @@ export class VaultAgentService {
 				sources: ragSources,
 			};
 		}
+		if (!this.isRecord(parsedEnvelope)) {
+			return {
+				message: messageOutsideBlock || "I could not safely prepare a vault action because the action payload was not a JSON object.",
+				rawResponse,
+				rawActionJson,
+				actions: [],
+				parseError: "Action payload must be a JSON object.",
+				sources: ragSources,
+			};
+		}
+		const envelope = parsedEnvelope as AgentEnvelope;
 
 		const envelopeMessage = typeof envelope.message === "string" ? envelope.message.trim() : "";
 		if (!this.plugin.settings.enableVaultActions) {
@@ -322,7 +322,7 @@ export class VaultAgentService {
 				const resolved = pendingAction.resolvedPath
 					? this.app.vault.getAbstractFileByPath(pendingAction.resolvedPath)
 					: null;
-				if (!(resolved instanceof TFile)) {
+				if (!(resolved instanceof TFile) || !isSafeVaultMarkdownPath(resolved.path)) {
 					return { success: false, message: "The approved target note is no longer available. Re-run the request." };
 				}
 				const existing = await this.app.vault.cachedRead(resolved);
@@ -658,7 +658,7 @@ export class VaultAgentService {
 		const withExtension = withoutBrackets.toLowerCase().endsWith(".md") ? withoutBrackets : `${withoutBrackets}.md`;
 		const normalized = withExtension.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/");
 		const parts = normalized.split("/");
-		if (parts.some(part => !part || part === "." || part === "..")) {
+		if (!isSafeVaultMarkdownPath(normalized) || parts.some(part => !part)) {
 			return undefined;
 		}
 		return normalized;
@@ -669,18 +669,26 @@ export class VaultAgentService {
 		if (!trimmed) {
 			return { ok: false, error: "Append action is missing a note target." };
 		}
+		const pathParts = trimmed.replace(/\\/g, "/").split("/");
+		if (pathParts.some((part) => !part || part === "." || part === ".." || part.startsWith("."))) {
+			return { ok: false, error: "Append target must be a Markdown note outside hidden folders." };
+		}
 
-		const directCandidates = [trimmed, trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`];
+		const directCandidates = [trimmed, ...(trimmed.endsWith(".md") ? [] : [`${trimmed}.md`])];
 		for (const candidate of directCandidates) {
 			const direct = this.app.vault.getAbstractFileByPath(candidate);
 			if (direct instanceof TFile) {
+				if (!isSafeVaultMarkdownPath(direct.path)) {
+					return { ok: false, error: "Append target must be a Markdown note outside hidden folders." };
+				}
 				return { ok: true, file: direct };
 			}
 		}
 
 		const markdownFiles = this.app.vault.getMarkdownFiles();
 		const baseName = trimmed.replace(/\.md$/i, "");
-		const matches = markdownFiles.filter((file) => file.basename === baseName);
+		const matches = markdownFiles.filter((file) =>
+			file.basename === baseName && isSafeVaultMarkdownPath(file.path));
 		if (matches.length === 1) {
 			return { ok: true, file: matches[0] };
 		}

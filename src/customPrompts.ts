@@ -4,7 +4,6 @@ export interface CustomPrompt {
 	id: string;
 	title: string;
 	prompt: string;
-	systemPrompt?: string;
 	createdAt: number;
 	updatedAt: number;
 }

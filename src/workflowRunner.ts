@@ -4,7 +4,8 @@ import type { AgentResponse, ChatEnvironmentContext, AgentAction } from "./vault
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type { RAGQueryScope, SourceReference } from "./rag";
 import type { WorkflowDefaults, WorkflowRecipeDefaults, WorkflowRecipeId } from "./workflowTypes";
-import { OpenAICompatibleClient } from "./llmClient";
+import { LLMClientError, OpenAICompatibleClient, type CompletionRequest } from "./llmClient";
+import { buildWorkflowUserPrompt, WORKFLOW_SYSTEM_PROMPT } from "./prompts";
 
 export interface WorkflowRecipeDefinition {
 	id: WorkflowRecipeId;
@@ -24,18 +25,8 @@ export interface WorkflowRunConfig {
 }
 
 interface WorkflowLLMEnvelope {
-	title?: unknown;
 	summary?: unknown;
-	wins?: unknown;
-	open_loops?: unknown;
-	next_actions?: unknown;
-	suggested_tags?: unknown;
 	markdown?: unknown;
-	follow_ups?: unknown;
-	progress?: unknown;
-	risks?: unknown;
-	blockers?: unknown;
-	next_steps?: unknown;
 }
 
 export const WORKFLOW_RECIPES: WorkflowRecipeDefinition[] = [
@@ -45,7 +36,7 @@ export const WORKFLOW_RECIPES: WorkflowRecipeDefinition[] = [
 		description: "Create a review note from the selected note scope.",
 		runLabel: "Draft weekly review",
 		targetType: "create-note",
-		defaultQuery: "Summarize the scoped notes into a weekly review with wins, open loops, and next actions.",
+		defaultQuery: "Find supported wins, completed outcomes, unresolved commitments, open loops, owners, due dates, and next actions for a weekly review.",
 	},
 	{
 		id: "meeting-notes-to-tasks",
@@ -53,7 +44,7 @@ export const WORKFLOW_RECIPES: WorkflowRecipeDefinition[] = [
 		description: "Turn meeting notes into a task update that can be appended to a project note.",
 		runLabel: "Draft task update",
 		targetType: "append-note",
-		defaultQuery: "Extract action items and follow-ups from the scoped meeting notes.",
+		defaultQuery: "Find meeting outcomes, decisions, commitments, action items, owners, due dates, follow-ups, and unresolved questions.",
 	},
 	{
 		id: "project-status-summary",
@@ -61,7 +52,7 @@ export const WORKFLOW_RECIPES: WorkflowRecipeDefinition[] = [
 		description: "Summarize progress, risks, and next steps for a project note.",
 		runLabel: "Draft status summary",
 		targetType: "append-note",
-		defaultQuery: "Summarize the scoped notes into project progress, risks, blockers, and next steps.",
+		defaultQuery: "Find project status, completed and in-progress work, dependencies, risks, blockers, unresolved decisions, and supported next steps.",
 	},
 ];
 
@@ -147,98 +138,57 @@ export class WorkflowRunnerService {
 	}
 
 	private async submitWorkflowPrompt(prompt: string): Promise<string> {
-		let rawResponse = await this.llmClient.complete({
+		const completionRequest: CompletionRequest = {
 			model: this.plugin.settings.llmModel,
 			messages: [
 				{
 					role: "system",
-					content: [
-						"You are a workflow drafting assistant inside Obsidian.",
-						"Return strict JSON only. Do not wrap the JSON in markdown fences.",
-						"The JSON must match the requested workflow schema exactly.",
-					].join("\n"),
+					content: WORKFLOW_SYSTEM_PROMPT,
 				},
 				{
 					role: "user",
 					content: prompt,
 				},
 			],
-			temperature: this.plugin.settings.temperature,
+			temperature: Math.min(this.plugin.settings.temperature, 0.3),
 			maxTokens: this.plugin.settings.maxTokens,
 			bufferedStream: false,
-		});
-		if (this.plugin.settings.extractReasoningResponses) {
-			const markers = parseReasoningMarkers(this.plugin.settings.reasoningMarkers || "");
-			rawResponse = extractActualResponse(rawResponse, markers);
+		};
+		let rawResponse: string;
+		try {
+			rawResponse = await this.llmClient.complete({
+				...completionRequest,
+				responseFormat: "json_object",
+			});
+		} catch (error) {
+			if (!(error instanceof LLMClientError) || error.code !== "invalid_request") {
+				throw error;
+			}
+			// Older local OpenAI-compatible servers may not support JSON mode.
+			// Their rejected request produced no content, so the strict prompt is
+			// safe to retry once without response_format.
+			rawResponse = await this.llmClient.complete(completionRequest);
 		}
+		const markers = parseReasoningMarkers(this.plugin.settings.reasoningMarkers || "");
+		rawResponse = extractActualResponse(rawResponse, markers);
 		return rawResponse.trim();
 	}
 
 	private buildWorkflowPrompt(recipe: WorkflowRecipeDefinition, config: WorkflowRunConfig, noteContext: string, sources: SourceReference[]): string {
-		const sourceList = sources.length > 0 ? sources.map(source => source.label).join("\n- ") : "No individual source names available.";
 		const scopeLabel = config.scope.label || config.scope.mode;
-
-		if (recipe.id === "weekly-review") {
-			const titleTemplate = config.titleTemplate || "Weekly Review - YYYY-MM-DD";
-			const outputFolder = config.outputFolder?.trim() || "(vault root)";
-			return [
-				`Recipe: ${recipe.title}`,
-				`Scope: ${scopeLabel}`,
-				`Output folder: ${outputFolder}`,
-				`Preferred title template: ${titleTemplate}`,
-				`Sources:\n- ${sourceList}`,
-				`Retrieved note context:\n${noteContext}`,
-				"",
-				"Return JSON with this schema:",
-				"{",
-				'  "title": "string",',
-				'  "summary": "string",',
-				'  "wins": ["string"],',
-				'  "open_loops": ["string"],',
-				'  "next_actions": ["string"],',
-				'  "suggested_tags": ["string"],',
-				'  "markdown": "full markdown document body"',
-				"}",
-				"",
-				"Use the provided title template if you need a fallback title.",
-			].join("\n");
-		}
-
-		if (recipe.id === "meeting-notes-to-tasks") {
-			return [
-				`Recipe: ${recipe.title}`,
-				`Scope: ${scopeLabel}`,
-				`Target note: ${config.targetNote || "(missing)"}`,
-				`Sources:\n- ${sourceList}`,
-				`Retrieved note context:\n${noteContext}`,
-				"",
-				"Return JSON with this schema:",
-				"{",
-				'  "summary": "string",',
-				'  "next_actions": ["string"],',
-				'  "follow_ups": ["string"],',
-				'  "markdown": "markdown section to append to the target note"',
-				"}",
-			].join("\n");
-		}
-
-		return [
-			`Recipe: ${recipe.title}`,
-			`Scope: ${scopeLabel}`,
-			`Target note: ${config.targetNote || "(missing)"}`,
-			`Sources:\n- ${sourceList}`,
-			`Retrieved note context:\n${noteContext}`,
-			"",
-			"Return JSON with this schema:",
-			"{",
-			'  "summary": "string",',
-			'  "progress": ["string"],',
-			'  "risks": ["string"],',
-			'  "blockers": ["string"],',
-			'  "next_steps": ["string"],',
-			'  "markdown": "markdown section to append to the target note"',
-			"}",
-		].join("\n");
+		const resolvedTitle = recipe.id === "weekly-review"
+			? this.renderTitleTemplate(config.titleTemplate || "Weekly Review - YYYY-MM-DD")
+			: undefined;
+		return buildWorkflowUserPrompt({
+			recipeId: recipe.id,
+			recipeTitle: recipe.title,
+			scopeLabel,
+			targetNote: recipe.targetType === "append-note" ? config.targetNote?.trim() : undefined,
+			outputFolder: recipe.id === "weekly-review" ? config.outputFolder?.trim() || "" : undefined,
+			resolvedTitle,
+			sourceLabels: sources.map((source) => source.label),
+			noteContext,
+		});
 	}
 
 	private parseWorkflowJson(rawResponse: string): WorkflowLLMEnvelope {
@@ -248,7 +198,11 @@ export class WorkflowRunnerService {
 		const jsonText = objectMatch?.[0] || candidate;
 
 		try {
-			return JSON.parse(jsonText) as WorkflowLLMEnvelope;
+			const parsed = JSON.parse(jsonText) as unknown;
+			if (!this.isRecord(parsed)) {
+				throw new Error("Workflow response must be a JSON object.");
+			}
+			return parsed as WorkflowLLMEnvelope;
 		} catch (error) {
 			throw new Error(`Workflow returned invalid JSON: ${error instanceof Error ? error.message : "Invalid JSON"}`);
 		}
@@ -257,9 +211,7 @@ export class WorkflowRunnerService {
 	private buildActions(recipeId: WorkflowRecipeId, envelope: WorkflowLLMEnvelope, config: WorkflowRunConfig): AgentAction[] {
 		const markdown = this.requireString(envelope.markdown, "markdown");
 		if (recipeId === "weekly-review") {
-			const rawTitle = this.asOptionalString(envelope.title);
-			const fallbackTitle = this.renderTitleTemplate(config.titleTemplate || "Weekly Review - YYYY-MM-DD");
-			const finalTitle = rawTitle?.trim() || fallbackTitle;
+			const finalTitle = this.renderTitleTemplate(config.titleTemplate || "Weekly Review - YYYY-MM-DD");
 			const basePath = [config.outputFolder?.trim(), finalTitle].filter(Boolean).join("/");
 			return [{
 				type: "create_note",
@@ -307,6 +259,10 @@ export class WorkflowRunnerService {
 
 	private asOptionalString(value: unknown): string | undefined {
 		return typeof value === "string" ? value : undefined;
+	}
+
+	private isRecord(value: unknown): value is Record<string, unknown> {
+		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 
 }

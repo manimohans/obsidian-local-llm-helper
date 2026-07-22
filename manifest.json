@@ -1,7 +1,7 @@
 {
 	"id": "local-llm-helper",
 	"name": "Local LLM Helper",
-	"version": "2.5.0",
+	"version": "2.6.0",
 	"minAppVersion": "1.7.2",
 	"description": "Local-first AI with cited Vault Radar briefs, note-grounded chat, semantic discovery, and approval-gated workflows.",
 	"author": "Mani Mohan",

@@ -21,6 +21,17 @@ const PDF_TEXT_MIN_LENGTH = 30;
 
 type OCRWorker = Awaited<ReturnType<typeof import("tesseract.js")["createWorker"]>>;
 
+/**
+ * pdf.js v5 dropped the `disableWorker` option, so there is no way to ask it not to
+ * spin up a worker; without one it reads GlobalWorkerOptions.workerSrc and throws.
+ * Importing the worker build assigns globalThis.pdfjsWorker, which pdf.js checks
+ * first and treats as "run the worker on the main thread". Stays fully local - no
+ * CDN, no separate worker file shipped beside the plugin.
+ */
+export async function ensurePdfWorker(): Promise<void> {
+	await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+}
+
 export class AttachmentExtractor {
 	private ocrWorkerPromise: Promise<OCRWorker> | null = null;
 
@@ -78,16 +89,15 @@ export class AttachmentExtractor {
 	}
 
 	private async extractPdf(file: TFile): Promise<ExtractedAttachmentChunk[]> {
+		await ensurePdfWorker();
 		const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 		const data = new Uint8Array(await this.vault.adapter.readBinary(file.path));
 		const loadingTask = pdfjs.getDocument({
 			data,
 			useSystemFonts: true,
-			isEvalSupported: false,
 			useWorkerFetch: false,
 			disableFontFace: true,
-			disableWorker: true,
-		} as never);
+		});
 		const pdf = await loadingTask.promise;
 		const chunks: ExtractedAttachmentChunk[] = [];
 

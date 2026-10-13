@@ -1,3 +1,4 @@
+import { ChatRenderScope } from "./chatRenderScope";
 import { App, ButtonComponent, Modal, Notice, DropdownComponent, TextComponent, setIcon } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import { getCurrentOrFallbackChatContext } from "./vaultAgent";
@@ -7,6 +8,8 @@ import { WORKFLOW_RECIPES, type WorkflowRunConfig } from "./workflowRunner";
 import type { RAGQueryScope } from "./rag";
 
 export class WorkflowModal extends Modal {
+	private renderScope = new ChatRenderScope();
+	private activeRequestId = 0;
 	private recipeId: WorkflowRecipeId = "weekly-review";
 	private scopeSelector: RAGScopeSelector;
 	private scopeBarEl: HTMLElement;
@@ -25,6 +28,7 @@ export class WorkflowModal extends Modal {
 	}
 
 	onOpen() {
+		this.renderScope.reset();
 		const { contentEl } = this;
 		contentEl.addClass("rag-chat-modal", "workflow-runner-modal");
 
@@ -33,7 +37,7 @@ export class WorkflowModal extends Modal {
 		setIcon(headerIcon, "workflow");
 		const headerText = header.createDiv({ cls: "rag-chat-header-text" });
 		headerText.createEl("h2", { text: "Run workflow" });
-		headerText.createEl("span", {
+		headerText.createSpan({
 			text: "Draft a review workflow, then approve each note write manually.",
 			cls: "rag-chat-subtitle",
 		});
@@ -94,7 +98,7 @@ export class WorkflowModal extends Modal {
 			text: "Choose a review workflow, confirm the note scope, and draft one or more approval-ready note changes.",
 		});
 		const examples = welcomeContent.createDiv({ cls: "rag-chat-examples" });
-		examples.createEl("span", { text: "Included recipes", cls: "rag-chat-examples-label" });
+		examples.createSpan({ text: "Included recipes", cls: "rag-chat-examples-label" });
 		for (const recipe of WORKFLOW_RECIPES) {
 			examples.createEl("button", {
 				text: recipe.title,
@@ -143,7 +147,7 @@ export class WorkflowModal extends Modal {
 			const titleRow = this.dynamicFieldsEl.createDiv({ cls: "workflow-runner-field-row" });
 			titleRow.createSpan({ text: "Title template", cls: "rag-chat-scope-label" });
 			this.titleTemplateInput = new TextComponent(titleRow)
-				.setPlaceholder("Weekly Review - YYYY-MM-DD")
+				.setPlaceholder("Weekly review - YYYY-MM-DD")
 				.setValue(defaults.titleTemplate || "Weekly Review - YYYY-MM-DD")
 				.onChange(() => {
 					this.updateSubmitButtonState();
@@ -213,8 +217,10 @@ export class WorkflowModal extends Modal {
 			return;
 		}
 
+		const requestId = ++this.activeRequestId;
 		this.hideWelcomeMessage();
 		await this.persistDefaults();
+		if (requestId !== this.activeRequestId) return;
 
 		const config = this.buildRunConfig();
 		const recipe = this.plugin.workflowRunner.getRecipe(config.recipeId);
@@ -232,12 +238,14 @@ export class WorkflowModal extends Modal {
 		try {
 			const contextSnapshot = getCurrentOrFallbackChatContext(this.app);
 			const response = await this.plugin.workflowRunner.runWorkflow(config, contextSnapshot);
+			if (requestId !== this.activeRequestId) return;
 			thinkingEl.remove();
 			this.plugin.vaultAgent.renderAgentResponse(
 				this.chatHistoryEl,
 				response,
 				contextSnapshot,
 				{
+					renderScope: this.renderScope,
 					messageClassName: "rag-chat-message rag-chat-message-ai",
 					responseTextClassName: "rag-chat-response-text",
 					copyButtonClassName: "rag-chat-copy-btn",
@@ -250,6 +258,7 @@ export class WorkflowModal extends Modal {
 				: `${recipe.title} finished with no writable actions.`);
 			this.scrollToBottom();
 		} catch (error) {
+			if (requestId !== this.activeRequestId) return;
 			thinkingEl.remove();
 			const errorMsg = this.chatHistoryEl.createDiv({ cls: "rag-chat-message rag-chat-message-error" });
 			errorMsg.createSpan({
@@ -293,6 +302,8 @@ export class WorkflowModal extends Modal {
 	}
 
 	private clearConversation() {
+		this.activeRequestId++;
+		this.renderScope.reset();
 		this.chatHistoryEl.empty();
 		this.showWelcomeMessage();
 	}
@@ -309,6 +320,8 @@ export class WorkflowModal extends Modal {
 	}
 
 	onClose() {
+		this.activeRequestId++;
+		this.renderScope.dispose();
 		this.contentEl.empty();
 	}
 }

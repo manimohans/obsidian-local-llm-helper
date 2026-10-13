@@ -147,9 +147,9 @@ ollama list  # Verify model is installed
 **Test Your Setup**:
 
 1. **Run Storage Diagnostics**:
-   - Use Command Palette (Ctrl/Cmd+P) → "RAG Storage Diagnostics"
+   - Use Command Palette (Ctrl/Cmd+P) → "Notes: RAG storage diagnostics"
    - OR go to Settings → Local LLM Helper → "Run Diagnostics" button
-   - Check console for detailed storage information
+   - Read the in-app diagnostics dialog for storage information
 
 2. **Check console logs** (Developer Tools > Console)
    - Look for messages starting with 🔌, 📂, 🧠, ✅, or ❌

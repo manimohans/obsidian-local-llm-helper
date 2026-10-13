@@ -1,3 +1,4 @@
+import { ChatRenderScope } from "./chatRenderScope";
 import { ButtonComponent, ItemView, MarkdownView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { RAGQueryScope } from "./rag";
@@ -25,6 +26,7 @@ export interface ChatViewOpenOptions {
 
 export class ChatView extends ItemView {
 	private plugin: OLocalLLMPlugin;
+	private renderScope = new ChatRenderScope();
 	private mode: ChatViewMode = "general";
 	private result = "";
 	private conversationHistory: ConversationEntry[] = [];
@@ -65,6 +67,7 @@ export class ChatView extends ItemView {
 	}
 
 	async onOpen(): Promise<void> {
+		this.renderScope.reset();
 		this.containerEl.addClass("llm-helper-chat-view");
 		this.contentEl.addClass("llm-helper-chat-content");
 		this.renderShell();
@@ -79,6 +82,8 @@ export class ChatView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		this.activeRequestId++;
+		this.renderScope.dispose();
 		this.conversationHistory = [];
 		this.contentEl.empty();
 	}
@@ -255,7 +260,7 @@ export class ChatView extends ItemView {
 
 	private renderTargetChip(): void {
 		if (this.mode === "notes") {
-			const scope = this.scopeSelector?.getScope() || ({ mode: "vault", label: "Entire vault" } as RAGQueryScope);
+			const scope = this.scopeSelector?.getScope() || ({ mode: "vault", label: "Entire vault" });
 			this.targetChipEl.setText(describeRAGScope(scope));
 			return;
 		}
@@ -358,6 +363,7 @@ export class ChatView extends ItemView {
 				result.response,
 				result.context,
 				{
+					renderScope: this.renderScope,
 					messageClassName: "rag-chat-message rag-chat-message-ai",
 					responseTextClassName: "rag-chat-response-text",
 					copyButtonClassName: "rag-chat-copy-btn",
@@ -406,7 +412,7 @@ export class ChatView extends ItemView {
 
 	private async submitNotesMessage(rawMessage: string, thinkingEl: HTMLElement) {
 		const parsedOverride = parseRAGScopeOverride(this.app, rawMessage);
-		const selectedScope = this.scopeSelector?.getScope() || ({ mode: "vault", label: "Entire vault" } as RAGQueryScope);
+		const selectedScope = this.scopeSelector?.getScope() || ({ mode: "vault", label: "Entire vault" });
 		const scope = parsedOverride.scope || selectedScope;
 		const query = parsedOverride.cleanQuery;
 		const badgeText = describeRAGScope(scope);
@@ -417,6 +423,9 @@ export class ChatView extends ItemView {
 	}
 
 	private clearConversation(): void {
+		this.activeRequestId++;
+		this.setGenerating(false);
+		this.renderScope.reset();
 		this.conversationHistory = [];
 		this.chatHistoryEl.empty();
 		this.showWelcomeMessage();

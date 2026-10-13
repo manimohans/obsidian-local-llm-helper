@@ -4,14 +4,14 @@ Thanks for helping improve Local LLM Helper. This plugin is built for Obsidian u
 
 ## Development Setup
 
-1. Install Node.js 20 or later and clone the repository.
+1. Install Node.js 22.13 or later and clone the repository.
 2. Install dependencies:
 
 ```bash
 npm ci
 ```
 
-3. Run the test and production-build gate:
+3. Run the lint, test, and production-build gate:
 
 ```bash
 npm run check
@@ -54,3 +54,31 @@ Please include:
 - Console errors, if any.
 
 Do not include private vault content, API keys, or sensitive prompts in public issues.
+
+## Releases
+
+Releases use an annotated tag such as `2.6.1` (no `v` prefix). The tag-triggered
+GitHub Actions workflow validates metadata, installs from the lockfile, runs
+`npm run check`, attests the artifacts, and publishes `main.js`, `manifest.json`,
+and `styles.css`. Do not commit the generated bundle.
+
+1. Review the changes, including dependency alerts. Preserve contributor authorship.
+2. Run `npm ci`, `npm run check`, and `npm audit --audit-level=moderate` locally.
+3. Exercise changed runtime behavior in a test vault or browser harness. In particular,
+   check PDF extraction from a cold start and with an existing PDF worker, settings
+   controls on supported API versions, and closing/clearing chats during requests.
+4. Set the same release version in `package.json`, both root version fields in
+   `package-lock.json`, and `manifest.json`; add its minimum Obsidian version to
+   `versions.json`. Update the in-app changelog in `src/updateNoticeModal.ts`.
+5. Commit and push the reviewed changes to `main`; wait for that commit's CI to pass.
+6. Create an annotated tag on that commit using the reviewed release notes, then push
+   the tag. The workflow reads the release body from the tag annotation.
+7. Verify the release workflow, tag commit, three downloadable artifacts, and artifact
+   attestations. Compare downloaded asset hashes with the local production build.
+8. Recheck Dependabot and the community listing. A published release does not prove
+   the directory has rescanned it; report the listing's observed version and score.
+
+The lint configuration follows Obsidian's documented community scanner configuration,
+with canonical product names and literal examples preserved by the sentence-case rule.
+The command fails on warnings as well as errors. Build and test files are excluded
+from the plugin-source scan, as they are in the community scanner.

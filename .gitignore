@@ -23,3 +23,6 @@ vault-radar-state.json*
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
 CLAUDE.md
+
+# Local browser validation artifacts
+.playwright-cli/

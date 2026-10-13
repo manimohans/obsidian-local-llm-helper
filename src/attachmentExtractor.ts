@@ -1,4 +1,5 @@
 import { TFile, Vault } from "obsidian";
+import type { PDFPageProxy, PDFWorker } from "pdfjs-dist/types/src/display/api";
 
 export type IndexedSourceType = "markdown" | "pdf" | "image";
 export type ExtractionMethod = "markdown" | "pdf-text" | "pdf-ocr" | "image-ocr";
@@ -21,15 +22,36 @@ const PDF_TEXT_MIN_LENGTH = 30;
 
 type OCRWorker = Awaited<ReturnType<typeof import("tesseract.js")["createWorker"]>>;
 
-/**
- * pdf.js v5 dropped the `disableWorker` option, so there is no way to ask it not to
- * spin up a worker; without one it reads GlobalWorkerOptions.workerSrc and throws.
- * Importing the worker build assigns globalThis.pdfjsWorker, which pdf.js checks
- * first and treats as "run the worker on the main thread". Stays fully local - no
- * CDN, no separate worker file shipped beside the plugin.
- */
-export async function ensurePdfWorker(): Promise<void> {
-	await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+type PdfWorkerModule = typeof import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+type PdfWorkerGlobal = Window & { pdfjsWorker?: { WorkerMessageHandler: unknown } };
+let workerModulePromise: Promise<PdfWorkerModule> | null = null;
+
+/** Load the bundled worker without leaving Obsidian's shared PDF handler replaced. */
+export async function ensurePdfWorker(): Promise<PDFWorker> {
+	const host = window as PdfWorkerGlobal;
+	if (!workerModulePromise) {
+		const previous = host.pdfjsWorker;
+		workerModulePromise = import("pdfjs-dist/legacy/build/pdf.worker.mjs").then((workerModule) => {
+			// The worker module registers itself on import. Restore the host's handler.
+			if (host.pdfjsWorker?.WorkerMessageHandler === workerModule.WorkerMessageHandler) {
+				if (previous === undefined) delete host.pdfjsWorker;
+				else host.pdfjsWorker = previous;
+			}
+			return workerModule;
+		});
+	}
+	const workerModule = await workerModulePromise;
+	const { PDFWorker } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+	const previous = host.pdfjsWorker;
+	try {
+		// PDFWorker captures the handler synchronously, before its ready promise settles.
+		// No CDN or extra release file is needed, and the host registration is restored.
+		host.pdfjsWorker = workerModule;
+		return new PDFWorker();
+	} finally {
+		if (previous === undefined) delete host.pdfjsWorker;
+		else host.pdfjsWorker = previous;
+	}
 }
 
 export class AttachmentExtractor {
@@ -89,63 +111,72 @@ export class AttachmentExtractor {
 	}
 
 	private async extractPdf(file: TFile): Promise<ExtractedAttachmentChunk[]> {
-		await ensurePdfWorker();
 		const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
 		const data = new Uint8Array(await this.vault.adapter.readBinary(file.path));
-		const loadingTask = pdfjs.getDocument({
-			data,
-			useSystemFonts: true,
-			useWorkerFetch: false,
-			disableFontFace: true,
-		});
-		const pdf = await loadingTask.promise;
-		const chunks: ExtractedAttachmentChunk[] = [];
+		const worker = await ensurePdfWorker();
+		let loadingTask: ReturnType<typeof pdfjs.getDocument> | undefined;
+		try {
+			loadingTask = pdfjs.getDocument({
+				data,
+				worker,
+				useSystemFonts: true,
+				useWorkerFetch: false,
+				disableFontFace: true,
+			});
+			const pdf = await loadingTask.promise;
+			const chunks: ExtractedAttachmentChunk[] = [];
 
-		for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
-			const page = await pdf.getPage(pageNumber);
-			const textContent = await page.getTextContent();
-			const extractedText = (textContent.items as Array<{ str?: string }>)
-				.map((item) => item?.str || "")
-				.join(" ");
-			const normalizedText = this.normalizeText(extractedText);
+			for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+				const page = await pdf.getPage(pageNumber);
+				const textContent = await page.getTextContent();
+				const extractedText = textContent.items
+					.map((item) => "str" in item ? item.str : "")
+					.join(" ");
+				const normalizedText = this.normalizeText(extractedText);
 
-			if (normalizedText.length >= PDF_TEXT_MIN_LENGTH) {
-				chunks.push({
-					text: normalizedText,
-					pageNumber,
-					sourceType: "pdf",
-					extractionMethod: "pdf-text",
-				});
-				continue;
-			}
-
-			if (!this.settings.ocrScannedPdfAttachments) {
-				continue;
-			}
-
-			try {
-				const pageBlob = await this.renderPdfPageToBlob(page);
-				const ocrText = await this.runImageOCR(pageBlob);
-				if (ocrText) {
+				if (normalizedText.length >= PDF_TEXT_MIN_LENGTH) {
 					chunks.push({
-						text: ocrText,
+						text: normalizedText,
 						pageNumber,
 						sourceType: "pdf",
-						extractionMethod: "pdf-ocr",
+						extractionMethod: "pdf-text",
 					});
+					continue;
 				}
-			} catch (error) {
-				console.warn(`Skipping OCR for PDF page ${pageNumber} in ${file.path}:`, error);
+
+				if (!this.settings.ocrScannedPdfAttachments) {
+					continue;
+				}
+
+				try {
+					const pageBlob = await this.renderPdfPageToBlob(page);
+					const ocrText = await this.runImageOCR(pageBlob);
+					if (ocrText) {
+						chunks.push({
+							text: ocrText,
+							pageNumber,
+							sourceType: "pdf",
+							extractionMethod: "pdf-ocr",
+						});
+					}
+				} catch (error) {
+					console.warn(`Skipping OCR for PDF page ${pageNumber} in ${file.path}:`, error);
+				}
+			}
+
+			return chunks;
+		} finally {
+			try {
+				await loadingTask?.destroy();
+			} finally {
+				worker.destroy();
 			}
 		}
-
-		await loadingTask.destroy();
-		return chunks;
 	}
 
-	private async renderPdfPageToBlob(page: any): Promise<Blob> {
+	private async renderPdfPageToBlob(page: PDFPageProxy): Promise<Blob> {
 		const viewport = page.getViewport({ scale: 1.5 });
-		const canvas = document.createElement("canvas");
+		const canvas = createEl("canvas");
 		canvas.width = Math.ceil(viewport.width);
 		canvas.height = Math.ceil(viewport.height);
 		const context = canvas.getContext("2d");
@@ -213,7 +244,7 @@ export class AttachmentExtractor {
 
 	private normalizeText(text: string): string {
 		return text
-			.replace(/\u0000/g, " ")
+			.split("\u0000").join(" ")
 			.replace(/\s+/g, " ")
 			.trim();
 	}

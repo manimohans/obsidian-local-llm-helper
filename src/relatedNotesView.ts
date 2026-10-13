@@ -92,7 +92,7 @@ export class RelatedNotesView extends ItemView {
 			console.error("Related notes refresh failed:", error);
 			this.setStatus("Could not load related notes.");
 			this.showEmptyState("Search failed. Check the console for details.");
-			new Notice("Could not load related notes. Check console for details.");
+			new Notice("Could not load Related Notes. Check console for details.");
 		}
 	}
 
@@ -110,7 +110,7 @@ export class RelatedNotesView extends ItemView {
 
 		const refreshBtn = headerEl.createEl("button", {
 			cls: "clickable-icon llm-helper-related-notes-refresh",
-			attr: { "aria-label": "Refresh related notes" }
+			attr: { "aria-label": "Refresh Related Notes" }
 		});
 		setIcon(refreshBtn, "refresh-cw");
 		refreshBtn.addEventListener("click", () => {
@@ -128,7 +128,7 @@ export class RelatedNotesView extends ItemView {
 		if (this.currentResults.length === 0) {
 			this.setStatus(`No strong matches found for ${this.currentContext?.description.toLowerCase() || "this context"}.`);
 			this.showEmptyState("Try selecting a more specific passage or re-indexing recent notes.");
-			new Notice("No related notes found. Try selecting a more specific passage.");
+			new Notice("No Related Notes found. Try selecting a more specific passage.");
 			return;
 		}
 

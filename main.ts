@@ -1,3 +1,5 @@
+import { DiagnosticsModal } from "./src/diagnosticsModal";
+import { ChatRenderScope } from "./src/chatRenderScope";
 import {
 	App,
 	Editor,
@@ -13,6 +15,7 @@ import {
 	TFolder,
 	normalizePath,
 	requestUrl,
+	requireApiVersion,
 	TextComponent,
 	ButtonComponent,
 	WorkspaceLeaf,
@@ -324,7 +327,7 @@ export default class OLocalLLMPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'open-related-notes-view',
-			name: 'Notes: Open related notes',
+			name: 'Notes: Open Related Notes',
 			callback: () => {
 				void this.activateRelatedNotesView();
 			},
@@ -988,11 +991,11 @@ export default class OLocalLLMPlugin extends Plugin {
 		await this.refreshRelatedNotesView();
 
 		if (!context) {
-			new Notice("Open a note or select text to find related notes.");
+			new Notice("Open a note or select text to find Related Notes.");
 			return;
 		}
 		if (this.ragManager.getIndexedFilesCount() === 0) {
-			new Notice("Index your notes first: run Notes: Index notes for RAG.");
+			new Notice("Index your notes first: run notes: Index notes for RAG.");
 			return;
 		}
 		new Notice("Related Notes opened in the right sidebar.");
@@ -1142,7 +1145,7 @@ export default class OLocalLLMPlugin extends Plugin {
 		return canvasPath;
 	}
 
-	async onunload() {
+	onunload(): void {
 		this.vaultRadarDisposed = true;
 		this.insightCanvasDisposed = true;
 		for (const modal of this.activeInsightCanvasModals) {
@@ -1153,7 +1156,6 @@ export default class OLocalLLMPlugin extends Plugin {
 			window.clearTimeout(this.vaultRadarTimer);
 			this.vaultRadarTimer = null;
 		}
-		this.app.workspace.detachLeavesOfType(VAULT_RADAR_VIEW_TYPE);
 		if (this.relatedNotesRefreshTimer !== null) {
 			window.clearTimeout(this.relatedNotesRefreshTimer);
 			this.relatedNotesRefreshTimer = null;
@@ -1167,7 +1169,9 @@ export default class OLocalLLMPlugin extends Plugin {
 			this.autoIndexTimer = undefined;
 		}
 		if (this.ragManager) {
-			await this.ragManager.dispose();
+			void this.ragManager.dispose().catch((error) => {
+				console.error("Failed to dispose the note index:", error);
+			});
 		}
 
 	}
@@ -1563,7 +1567,7 @@ export default class OLocalLLMPlugin extends Plugin {
 			this.queueRelatedNotesRefresh(150);
 		} catch (error) {
 			console.error('Error indexing notes:', error);
-			new Notice('Failed to index notes. Check console for details.');
+			new Notice(error instanceof Error ? error.message : "Failed to index notes. Check console for details.");
 		} finally {
 			this.isIndexing = false;
 		}
@@ -1600,46 +1604,27 @@ export default class OLocalLLMPlugin extends Plugin {
 		}
 	}
 
-	async handleDiagnostics() {
-		// User-invoked diagnostics command; the notice points to the console,
-		// so this must log unconditionally rather than through debugLog.
-		console.log('🔍 === RAG STORAGE DIAGNOSTICS ===');
-
-		// Plugin settings diagnostics
-		console.log('📋 Plugin Settings:');
-		console.log('  Provider:', this.settings.providerType);
-		console.log('  Chat Server:', this.settings.serverAddress);
-		console.log('  Embedding Server:', getEffectiveEmbeddingServerAddress(this.settings));
-		console.log('  Embedding Model:', this.settings.embeddingModelName);
-		console.log('  LLM Model:', this.settings.llmModel);
-
-		// RAG storage diagnostics
+	async handleDiagnostics(): Promise<void> {
 		try {
 			const stats = await this.ragManager.getStorageStats();
-			console.log('💾 RAG Storage Stats:');
-			console.log('  Total Embeddings:', stats.totalEmbeddings);
-			console.log('  Indexed Sources:', stats.indexedFiles);
-			console.log('  Markdown Sources:', stats.sourceCounts.markdown);
-			console.log('  PDF Sources:', stats.sourceCounts.pdf);
-			console.log('  Image Sources:', stats.sourceCounts.image);
-			console.log('  Last Indexed:', stats.lastIndexed);
-			console.log('  Storage Used:', stats.storageUsed);
-			console.log('  Current Indexed Count:', this.ragManager.getIndexedFilesCount());
-
-			new Notice(`RAG Diagnostics: ${stats.totalEmbeddings} embeddings, ${stats.indexedFiles} sources. Check console for details.`);
+			new DiagnosticsModal(this.app, [
+				["Provider", this.settings.providerType],
+				["Chat model", this.settings.llmModel],
+				["Embedding model", this.settings.embeddingModelName],
+				["Total embeddings", String(stats.totalEmbeddings)],
+				["Indexed sources", String(stats.indexedFiles)],
+				["Markdown sources", String(stats.sourceCounts.markdown)],
+				["PDF sources", String(stats.sourceCounts.pdf)],
+				["Image sources", String(stats.sourceCounts.image)],
+				["Last indexed", String(stats.lastIndexed)],
+				["Storage used", stats.storageUsed],
+				["Loaded sources", String(this.ragManager.getIndexedFilesCount())],
+				["Total vault files", String(this.app.vault.getFiles().length)],
+			]).open();
 		} catch (error) {
-			console.error('❌ Error getting storage stats:', error);
-			new Notice('Error getting storage stats. Check console for details.');
+			console.error("Error getting storage stats:", error);
+			new Notice("Error getting storage stats. Check console for details.");
 		}
-
-		// File system diagnostics
-		const totalFiles = this.app.vault.getFiles().length;
-		console.log('📁 Vault Stats:');
-		console.log('  Total Files:', totalFiles);
-		console.log('  Plugin Settings Path:', `${this.manifest.dir}/data.json`);
-		console.log('  Embeddings Storage Path:', `${this.manifest.dir}/embeddings.json`);
-
-		console.log('🔍 === END DIAGNOSTICS ===');
 	}
 
 	async showStorageNotification() {
@@ -1678,7 +1663,7 @@ class ModelPickerModal extends SuggestModal<string> {
 	}
 
 	renderSuggestion(model: string, el: HTMLElement) {
-		el.createEl("div", { text: model });
+		el.createDiv({ text: model });
 	}
 
 	onChooseSuggestion(model: string) {
@@ -1686,11 +1671,12 @@ class ModelPickerModal extends SuggestModal<string> {
 	}
 }
 
-class OLLMSettingTab extends PluginSettingTab {
+export class OLLMSettingTab extends PluginSettingTab {
 	plugin: OLocalLLMPlugin;
 	private indexingProgressBar: HTMLProgressElement | null = null;
 	private indexedFilesCountSetting: Setting | null = null;
 	private saveTimeout: number | null = null;
+	private indexedCountTimer: number | null = null;
 
 	constructor(app: App, plugin: OLocalLLMPlugin) {
 		super(app, plugin);
@@ -1709,6 +1695,11 @@ class OLLMSettingTab extends PluginSettingTab {
 
 	// Flush any pending debounced save when settings tab is closed
 	hide() {
+		if (this.indexedCountTimer !== null) {
+			window.clearTimeout(this.indexedCountTimer);
+			this.indexedCountTimer = null;
+		}
+		this.indexedFilesCountSetting = null;
 		if (this.saveTimeout) {
 			window.clearTimeout(this.saveTimeout);
 			this.saveTimeout = null;
@@ -1716,15 +1707,99 @@ class OLLMSettingTab extends PluginSettingTab {
 		}
 	}
 
+	// Definitions are cheap to index; UI construction and I/O stay in render callbacks.
+	// Both API generations use the same renderers so validation and save side effects agree.
+	getSettingDefinitions() {
+		return [
+			{
+				name: "Connection",
+				aliases: ["Provider", "Chat/default server URL", "Chat/default API key", "Embedding server URL", "Embedding API key"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderConnectionSettings(el)),
+			},
+			{
+				name: "Models",
+				aliases: ["Chat model", "Embedding model", "Temperature", "Max tokens"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderModelsSettings(el)),
+			},
+			{
+				name: "Chat",
+				aliases: ["Persona", "System prompt", "Conversation history", "Render markdown in chat", "Vault Actions", "Show Vault Actions debug JSON"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderChatSettings(el)),
+			},
+			{
+				name: "Vault Radar",
+				aliases: ["Automatic daily brief", "Changed notes per run", "Open Vault Radar"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderVaultRadarSettings(el)),
+			},
+			{
+				name: "Workflow Automation",
+				aliases: ["Weekly review", "Meeting notes to tasks", "Project status summary", "Default source scope", "Default tags", "Output folder", "Title template", "Target note"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderWorkflowAutomationSettings(el)),
+			},
+			{
+				name: "Output",
+				aliases: ["Streaming", "Output mode", "Response formatting", "Prepend text", "Append text", "Extract reasoning", "Reasoning markers"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderOutputSettings(el)),
+			},
+			{
+				name: "Custom Prompt",
+				aliases: ["Your prompt"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderCustomPromptSettings(el)),
+			},
+			{
+				name: "Saved Prompts",
+				aliases: [],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderSavedPromptsSettings(el)),
+			},
+			{
+				name: "Notes Index (RAG)",
+				aliases: ["RAG Top K", "Auto-index interval (minutes)", "Auto Index Notification", "Index PDF attachments", "OCR image attachments", "OCR scanned PDFs", "Index sources", "Indexed sources", "Diagnostics"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderNotesIndexRagSettings(el)),
+			},
+			{
+				name: "Integrations",
+				aliases: ["Brave Search API key", "SearXNG instance URL", "Tavily API key", "Search provider"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderIntegrationsSettings(el)),
+			},
+			{
+				name: "About",
+				aliases: ["Version"],
+				render: (setting: Setting) => this.renderSettingsSection(setting, (el) => this.renderAboutSettings(el)),
+			},
+		];
+	}
+
+	private renderSettingsSection(setting: Setting, render: (el: HTMLElement) => void): void {
+		setting.setHeading();
+		setting.settingEl.addClass("llm-helper-settings-section");
+		setting.controlEl.remove();
+		render(setting.settingEl.createDiv({ cls: "llm-helper-settings-section-content" }));
+	}
+
+	// Obsidian <1.13 uses display(); newer versions render the definitions above.
 	display(): void {
-		const { containerEl } = this;
+		this.renderLegacySettings();
+	}
 
-		containerEl.empty();
+	private renderLegacySettings(): void {
+		this.containerEl.empty();
+		for (const definition of this.getSettingDefinitions()) {
+			if ("render" in definition && definition.render) {
+				const setting = new Setting(this.containerEl).setName(definition.name);
+				definition.render(setting);
+			}
+		}
+	}
 
-		// ═══════════════════════════════════════════════════════════
-		// CONNECTION
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Connection");
+	private refreshSettings(): void {
+		if (requireApiVersion("1.13.0")) {
+			this.update();
+		} else {
+			this.renderLegacySettings();
+		}
+	}
+
+	private renderConnectionSettings(containerEl: HTMLElement): void {
 
 		new Setting(containerEl)
 			.setName("Provider")
@@ -1742,7 +1817,7 @@ class OLLMSettingTab extends PluginSettingTab {
 							this.plugin.settings.serverAddress = 'http://localhost:1234';
 						}
 						await this.plugin.saveSettings();
-						this.display();
+						this.refreshSettings();
 					})
 			);
 
@@ -1788,7 +1863,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Embedding API key")
-			.setDesc("Optional. Leave blank to inherit the chat/default API key. Use 'not-needed' to send no Authorization header.")
+			.setDesc("Optional. Leave blank to inherit the chat/default API key. Use 'not-needed' to send no authorization header.")
 			.addText((text) =>
 				text
 					.setPlaceholder("inherit chat/default key")
@@ -1799,10 +1874,9 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// ═══════════════════════════════════════════════════════════
-		// MODELS
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Models");
+	}
+
+	private renderModelsSettings(containerEl: HTMLElement): void {
 
 		let chatModelText: TextComponent;
 		new Setting(containerEl)
@@ -1914,10 +1988,9 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// ═══════════════════════════════════════════════════════════
-		// CHAT
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Chat");
+	}
+
+	private renderChatSettings(containerEl: HTMLElement): void {
 
 		new Setting(containerEl)
 			.setName("Persona")
@@ -1930,7 +2003,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.personas = value;
 						await this.plugin.saveSettings();
-						this.display();
+						this.refreshSettings();
 					});
 			});
 
@@ -1994,11 +2067,11 @@ class OLLMSettingTab extends PluginSettingTab {
 					this.plugin.rebuildPersonas();
 					await this.plugin.saveSettings();
 					new Notice(`Persona "${name}" added`);
-					this.display();
+					this.refreshSettings();
 				}))
 			.addButton(btn => btn
 				.setButtonText("Delete selected persona")
-				.setWarning()
+				.setClass("mod-warning")
 				.setDisabled(selectedPersonaKey === "default" || isBuiltInPersona && !this.plugin.settings.savedPersonas?.[selectedPersonaKey])
 				.onClick(async () => {
 					if (isBuiltInPersona) {
@@ -2012,7 +2085,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					this.plugin.rebuildPersonas();
 					await this.plugin.saveSettings();
 					new Notice("Persona deleted");
-					this.display();
+					this.refreshSettings();
 				}))
 			.addButton(btn => btn
 				.setButtonText("Restore defaults")
@@ -2021,7 +2094,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					this.plugin.rebuildPersonas();
 					await this.plugin.saveSettings();
 					new Notice("Personas restored to defaults");
-					this.display();
+					this.refreshSettings();
 				}));
 
 		new Setting(containerEl)
@@ -2041,7 +2114,7 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Render markdown in chat")
+			.setName("Render Markdown in chat")
 			.setDesc("Render assistant responses in chat views with Obsidian's Markdown renderer. Turn this off to keep plain escaped text.")
 			.addToggle((toggle) =>
 				toggle
@@ -2076,7 +2149,10 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
-		this.addHeading(containerEl, "Vault Radar");
+
+	}
+
+	private renderVaultRadarSettings(containerEl: HTMLElement): void {
 
 		containerEl.createEl("p", {
 			text: "Turn recent Markdown changes into a small, cited brief: forgotten commitments, stalled work, useful connections, and a concrete next action. Radar reads notes but never edits them.",
@@ -2127,7 +2203,10 @@ class OLLMSettingTab extends PluginSettingTab {
 					void this.plugin.openVaultRadarView({ focusRunButton: true });
 				}));
 
-		this.addHeading(containerEl, "Workflow Automation");
+
+	}
+
+	private renderWorkflowAutomationSettings(containerEl: HTMLElement): void {
 
 		containerEl.createEl("p", {
 			text: "Manual workflow recipes draft note changes from RAG context and still require approval before writing.",
@@ -2138,10 +2217,9 @@ class OLLMSettingTab extends PluginSettingTab {
 		this.renderWorkflowDefaultsSetting(containerEl, "meeting-notes-to-tasks", "Meeting notes to tasks");
 		this.renderWorkflowDefaultsSetting(containerEl, "project-status-summary", "Project status summary");
 
-		// ═══════════════════════════════════════════════════════════
-		// OUTPUT
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Output");
+	}
+
+	private renderOutputSettings(containerEl: HTMLElement): void {
 
 		new Setting(containerEl)
 			.setName("Streaming")
@@ -2178,7 +2256,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.responseFormatting = value;
 						await this.plugin.saveSettings();
-						this.display();
+						this.refreshSettings();
 					})
 			);
 
@@ -2220,7 +2298,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.extractReasoningResponses = value;
 						await this.plugin.saveSettings();
-						this.display();
+						this.refreshSettings();
 					})
 			);
 
@@ -2248,14 +2326,13 @@ class OLLMSettingTab extends PluginSettingTab {
 					}));
 		}
 
-		// ═══════════════════════════════════════════════════════════
-		// CUSTOM PROMPT
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Custom Prompt");
+	}
+
+	private renderCustomPromptSettings(containerEl: HTMLElement): void {
 
 		new Setting(containerEl)
 			.setName("Your prompt")
-			.setDesc("Used by 'Text: Run custom prompt' command")
+			.setDesc("Used by 'text: Run custom prompt' command")
 			.addText((text) =>
 				text
 					.setPlaceholder("Create action items from the following:")
@@ -2266,10 +2343,9 @@ class OLLMSettingTab extends PluginSettingTab {
 					})
 			);
 
-		// ═══════════════════════════════════════════════════════════
-		// SAVED PROMPTS
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Saved Prompts");
+	}
+
+	private renderSavedPromptsSettings(containerEl: HTMLElement): void {
 
 		const savedPrompts = this.plugin.settings.customPrompts || [];
 
@@ -2290,19 +2366,20 @@ class OLLMSettingTab extends PluginSettingTab {
 									this.plugin.refreshCustomPromptCommands();
 									await this.plugin.saveSettings();
 									new Notice("Prompt updated");
-									this.display();
+									this.refreshSettings();
 								})();
 							}).open();
 						}))
 					.addButton(btn => btn
 						.setButtonText("Delete")
-						.setWarning()
+
+						.setClass("mod-warning")
 						.onClick(async () => {
 							this.plugin.settings.customPrompts = savedPrompts.filter(p => p.id !== sp.id);
 							this.plugin.unregisterPromptCommand(sp.id);
 							await this.plugin.saveSettings();
 							new Notice("Prompt deleted");
-							this.display();
+							this.refreshSettings();
 						}));
 			}
 		} else {
@@ -2315,10 +2392,10 @@ class OLLMSettingTab extends PluginSettingTab {
 		// Add new prompt form
 		const newPromptContainer = containerEl.createDiv({ cls: "new-prompt-container" });
 		const newTitleInput = newPromptContainer.createEl("input", {
-			attr: { type: "text", placeholder: "Prompt title (e.g., Translate to Spanish)", style: "width: 100%; margin-bottom: 4px;" }
+			attr: { type: "text", placeholder: "Prompt title (e.g., translate to Spanish)", style: "width: 100%; margin-bottom: 4px;" }
 		});
 		const newPromptTextarea = newPromptContainer.createEl("textarea", {
-			attr: { placeholder: "Prompt text (e.g., Translate the following text to Spanish:)", rows: "3", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 4px;" }
+			attr: { placeholder: "Prompt text (e.g., translate the following text to Spanish:)", rows: "3", style: "width: 100%; font-family: monospace; font-size: 0.85em; margin-bottom: 4px;" }
 		});
 
 		new Setting(newPromptContainer)
@@ -2345,17 +2422,16 @@ class OLLMSettingTab extends PluginSettingTab {
 					this.plugin.registerSinglePromptCommand(newPrompt);
 					await this.plugin.saveSettings();
 					new Notice(`Prompt "${title}" saved`);
-					this.display();
+					this.refreshSettings();
 				}));
 
-		// ═══════════════════════════════════════════════════════════
-		// NOTES INDEX (RAG)
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Notes Index (RAG)");
+	}
+
+	private renderNotesIndexRagSettings(containerEl: HTMLElement): void {
 		
 		// Top K
 		new Setting(containerEl)
-			.setName("RAG Top K")
+			.setName("RAG top k")
 			.setDesc("Number of relevant note chunks to send to the AI")
 			.addText((text) => {
 				text.inputEl.type = "number"
@@ -2387,7 +2463,7 @@ class OLLMSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Auto Index Notification")
+			.setName("Auto index notification")
 			.setDesc("Show a notification when auto indexing")
 			.addToggle((toggle) =>
 				toggle
@@ -2444,7 +2520,7 @@ class OLLMSettingTab extends PluginSettingTab {
 					this.indexingProgressBar = containerEl.createEl("progress", {
 						attr: { value: 0, max: 100 }
 					});
-					const counterEl = containerEl.createEl("span", {
+					const counterEl = containerEl.createSpan({
 						text: "Processing: 0/?",
 						cls: "indexing-counter"
 					});
@@ -2465,7 +2541,7 @@ class OLLMSettingTab extends PluginSettingTab {
 						this.updateIndexedFilesCount();
 					} catch (error) {
 						console.error("Indexing error:", error);
-						new Notice("Error during indexing. Check console for details.");
+						new Notice(error instanceof Error ? error.message : "Error during indexing. Check console for details.");
 					} finally {
 						button.setDisabled(false);
 						if (this.indexingProgressBar) {
@@ -2494,10 +2570,9 @@ class OLLMSettingTab extends PluginSettingTab {
 					await this.plugin.handleDiagnostics();
 				}));
 
-		// ═══════════════════════════════════════════════════════════
-		// INTEGRATIONS
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "Integrations");
+	}
+
+	private renderIntegrationsSettings(containerEl: HTMLElement): void {
 
 		const searchApiKeyContainer = containerEl.createDiv();
 
@@ -2532,7 +2607,7 @@ class OLLMSettingTab extends PluginSettingTab {
 			} else {
 				new Setting(searchApiKeyContainer)
 					.setName("Tavily API key")
-					.setDesc("Required for web search features (tavily.com)")
+					.setDesc("Required for web search features (Tavily.com)")
 					.addText((text) =>
 						text
 							.setPlaceholder("Enter API key")
@@ -2563,10 +2638,9 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		renderSearchApiKey();
 
-		// ═══════════════════════════════════════════════════════════
-		// ABOUT
-		// ═══════════════════════════════════════════════════════════
-		this.addHeading(containerEl, "About");
+	}
+
+	private renderAboutSettings(containerEl: HTMLElement): void {
 
 		new Setting(containerEl)
 			.setName("Version")
@@ -2600,7 +2674,7 @@ class OLLMSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Default tags")
-			.setDesc("Only used when the default source scope is Tag")
+			.setDesc("Only used when the default source scope is tag")
 			.addText((text) =>
 				text
 					.setPlaceholder("#project")
@@ -2630,7 +2704,7 @@ class OLLMSettingTab extends PluginSettingTab {
 				.setDesc("Use YYYY-MM-DD for the local date")
 				.addText((text) =>
 					text
-						.setPlaceholder("Weekly Review - YYYY-MM-DD")
+						.setPlaceholder("Weekly review - YYYY-MM-DD")
 						.setValue(defaults.titleTemplate)
 						.onChange((value) => {
 							defaults.titleTemplate = value || "Weekly Review - YYYY-MM-DD";
@@ -2661,20 +2735,19 @@ class OLLMSettingTab extends PluginSettingTab {
 		}
 	}
 
-	async updateIndexedFilesCountAsync() {
-		// Wait for RAGManager to be fully initialized
+	updateIndexedFilesCountAsync(): void {
+		if (this.indexedCountTimer !== null) window.clearTimeout(this.indexedCountTimer);
+		const target = this.indexedFilesCountSetting;
 		const checkAndUpdate = () => {
-			if (this.plugin.ragManager && this.plugin.ragManager.isInitialized()) {
+			this.indexedCountTimer = null;
+			if (!target || target !== this.indexedFilesCountSetting) return;
+			if (this.plugin.ragManager?.isInitialized()) {
 				this.updateIndexedFilesCount();
-				debugLog('📊 Settings: Updated indexed files count to', this.plugin.ragManager.getIndexedFilesCount());
 			} else {
-				// Check again in 100ms
-				window.setTimeout(checkAndUpdate, 100);
+				this.indexedCountTimer = window.setTimeout(checkAndUpdate, 100);
 			}
 		};
-		
-		// Start checking after a short delay
-		window.setTimeout(checkAndUpdate, 50);
+		this.indexedCountTimer = window.setTimeout(checkAndUpdate, 50);
 	}
 
 	private addHeading(containerEl: HTMLElement, name: string): void {
@@ -2795,6 +2868,8 @@ async function processText(
 }
 
 export class LLMChatModal extends Modal {
+	private renderScope = new ChatRenderScope();
+	private activeRequestId = 0;
 	result: string = "";
 	pluginSettings: OLocalLLMSettings;
 	plugin: OLocalLLMPlugin;
@@ -2810,6 +2885,7 @@ export class LLMChatModal extends Modal {
 	}
 
 	onOpen() {
+		this.renderScope.reset();
 		const { contentEl } = this;
 
 		contentEl.classList.add("llm-chat-modal");
@@ -2820,7 +2896,7 @@ export class LLMChatModal extends Modal {
 		chatHistoryEl.classList.add("chatHistoryElStyle");
 
 		// Display existing conversation history (if any)
-		chatHistoryEl.createEl("h1", { text: "Chat with your Local LLM" });
+		chatHistoryEl.createEl("h1", { text: "Chat with your local LLM" });
 
 		const personasInfoEl = chatHistoryEl.createDiv({ cls: "personasInfoStyle" });
 		const currentPersona = this.plugin.personasDict[this.pluginSettings.personas];
@@ -2868,6 +2944,8 @@ export class LLMChatModal extends Modal {
 	}
 
 	onClose() {
+		this.activeRequestId++;
+		this.renderScope.dispose();
 		let { contentEl } = this;
 		contentEl.empty();
 	}
@@ -2888,6 +2966,7 @@ export class LLMChatModal extends Modal {
 			return;
 		}
 
+		const requestId = ++this.activeRequestId;
 		const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
 		if (chatHistoryEl) {
 			await processChatInput(
@@ -2896,8 +2975,11 @@ export class LLMChatModal extends Modal {
 				chatHistoryEl as HTMLElement,
 				this.conversationHistory,
 				this.plugin,
-				this.initialChatContext
+				this.initialChatContext,
+				this.renderScope,
+				() => requestId === this.activeRequestId,
 			);
+			if (requestId !== this.activeRequestId) return;
 			this.result = ""; // Clear user input field
 			const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
 			if (textInputEl) {
@@ -2923,6 +3005,8 @@ async function processChatInput(
 	conversationHistory: ConversationEntry[],
 	plugin: OLocalLLMPlugin,
 	initialChatContext: ChatEnvironmentContext,
+	renderScope: ChatRenderScope,
+	isCurrent: () => boolean,
 ) {
 	const userMessageEl = chatHistoryEl.createDiv({ cls: "llmChatMessageStyleUser" });
 	userMessageEl.setText(text);
@@ -2933,12 +3017,14 @@ async function processChatInput(
 	try {
 		const result = await submitGeneralChat(plugin, text, conversationHistory, initialChatContext);
 
+		if (!isCurrent()) return;
 		hideThinkingIndicator(chatHistoryEl);
 		const renderedMessage = plugin.vaultAgent.renderAgentResponse(
 			chatHistoryEl,
 			result.response,
 			result.context,
 			{
+				renderScope,
 				messageClassName: "llmChatMessageStyleAI",
 				scrollToBottom: () => scrollToBottom(chatContainer),
 			},
@@ -2946,11 +3032,12 @@ async function processChatInput(
 		recordConversationHistory(conversationHistory, text, renderedMessage, plugin.settings.maxConvHistory);
 		new Notice("Chat response ready.");
 		scrollToBottom(chatContainer);
-		} catch (error) {
-			console.error("Error during request:", error);
-			new Notice(getLLMErrorMessage(error, "Error communicating with LLM server. Check plugin console for details."));
-			hideThinkingIndicator(chatHistoryEl);
-		}
+	} catch (error) {
+		if (!isCurrent()) return;
+		console.error("Error during request:", error);
+		new Notice(getLLMErrorMessage(error, "Error communicating with LLM server. Check plugin console for details."));
+		hideThinkingIndicator(chatHistoryEl);
+	}
 }
 
 function showThinkingIndicator(chatHistoryEl: HTMLElement) {
@@ -3001,7 +3088,7 @@ class EditPromptModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
-		contentEl.createEl("h2", { text: "Edit Prompt" });
+		contentEl.createEl("h2", { text: "Edit prompt" });
 
 		const titleInput = contentEl.createEl("input", {
 			attr: { type: "text", value: this.prompt.title, style: "width: 100%; margin-bottom: 8px;" }

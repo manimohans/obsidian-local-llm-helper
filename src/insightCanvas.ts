@@ -153,7 +153,8 @@ export function sanitizeInsightCanvasFilename(title: string): string {
 	const withoutExtension = title.trim().replace(/\.canvas$/i, "");
 	let sanitized = withoutExtension
 		.normalize("NFKC")
-		.replace(/[\u0000-\u001f\u007f<>:#"/\\|?*\[\]]/g, " ")
+		.split("").map((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 ? " " : char).join("")
+		.replace(/[<>:#"/\\|?*[\]]/g, " ")
 		.replace(/\s+/g, " ")
 		.replace(/^[. ]+|[. ]+$/g, "");
 	if (!sanitized || sanitized === "." || sanitized === "..") {

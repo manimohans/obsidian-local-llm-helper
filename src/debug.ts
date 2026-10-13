@@ -11,6 +11,6 @@ export function setDebugLogging(enabled: boolean): void {
  */
 export function debugLog(...args: unknown[]): void {
 	if (debugLoggingEnabled) {
-		console.log(...args);
+		console.debug(...args);
 	}
 }

@@ -168,13 +168,16 @@ export function normalizeVaultRadarState(value: unknown): VaultRadarState {
 
 	if (isRecord(value.noteVersions)) {
 		const versions = Object.entries(value.noteVersions)
-			.filter(([path, version]) => (
-				path.length > 0
-				&& path.length <= MAX_VAULT_RADAR_PATH_CHARS
-				&& isRecord(version)
-				&& isFiniteNonNegativeNumber(version.modifiedAt)
-				&& isFiniteNonNegativeNumber(version.size)
-			))
+			.filter((entry): entry is [string, { modifiedAt: number; size: number }] => {
+				const [path, version] = entry;
+				return (
+					path.length > 0
+					&& path.length <= MAX_VAULT_RADAR_PATH_CHARS
+					&& isRecord(version)
+					&& isFiniteNonNegativeNumber(version.modifiedAt)
+					&& isFiniteNonNegativeNumber(version.size)
+				);
+			})
 			.sort(([pathA, a], [pathB, b]) => (
 				b.modifiedAt - a.modifiedAt
 				|| (pathA < pathB ? -1 : pathA > pathB ? 1 : 0)
@@ -899,7 +902,7 @@ function createBoundedExcerpt(content: string, maxChars: number): string {
 }
 
 function normalizeNoteContent(content: string): string {
-	return content.replace(/\u0000/g, "").trim();
+	return content.split("\u0000").join("").trim();
 }
 
 function extractJsonObject(raw: string): string {
@@ -1018,7 +1021,7 @@ function clampInteger(
 	return Math.min(maximum, Math.max(minimum, Math.floor(value as number)));
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

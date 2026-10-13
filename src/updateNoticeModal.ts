@@ -3,6 +3,31 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.6.1",
+		date: "2026-10",
+		changes: `
+**PDF indexing and security**
+- Fixed PDF indexing from a fresh session, based on Brandon Robare's contribution in #16.
+- Bundled the PDF worker locally and kept its registration separate from Obsidian's PDF viewer.
+- Updated PDF.js and development dependencies to resolve reported security vulnerabilities.
+- Failed files now produce an indexing error instead of a success notice; successful work is saved.
+
+**Obsidian compatibility**
+- Added searchable settings sections on Obsidian 1.13+ while retaining support for 1.7.2+.
+- Released Markdown rendering resources when chats and workflows close or clear.
+- Preserved sidebar placement when disabling the plugin and improved timer cleanup.
+- Moved index diagnostics into an in-app dialog and added official Obsidian lint checks to every build gate.
+`,
+	},
+	{
+		version: "2.6.0",
+		date: "2026-07",
+		changes: `
+- Added Insight Canvas for exploring Vault Radar cards and their cited sources.
+- Improved action prompts and protected edits against stale selections.
+`,
+	},
+	{
 		version: "2.5.0",
 		date: "2026-07",
 		changes: `

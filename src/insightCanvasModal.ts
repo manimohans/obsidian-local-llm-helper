@@ -32,7 +32,7 @@ export class InsightCanvasModal extends Modal {
 		setIcon(headerIcon, "map");
 		const headerText = header.createDiv({ cls: "rag-chat-header-text" });
 		headerText.createEl("h2", { text: "Map this insight" });
-		headerText.createEl("span", {
+		headerText.createSpan({
 			text: "Create an editable Obsidian Canvas from this card and its cited notes.",
 			cls: "rag-chat-subtitle",
 		});
@@ -51,7 +51,7 @@ export class InsightCanvasModal extends Modal {
 
 		new Setting(contentEl)
 			.setName("Destination")
-			.setDesc("A new file in the Vault Radar Maps folder. Existing files are never overwritten.");
+			.setDesc("A new file in the Vault Radar maps folder. Existing files are never overwritten.");
 		new Setting(contentEl)
 			.setName("Evidence")
 			.setDesc(

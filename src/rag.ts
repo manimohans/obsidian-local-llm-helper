@@ -466,15 +466,18 @@ export class RAGManager {
 		}
 
 		let processed = 0;
+		let failed = 0;
 		const totalToProcess = toIndex.length;
 
 		for (const file of toIndex) {
 			try {
 				await this.indexFile(file);
+			} catch (error) {
+				failed++;
+				console.error(`Error indexing ${file.path}:`, error);
+			} finally {
 				processed++;
 				progressCallback((processed / totalToProcess) * 0.9 + 0.1);
-			} catch (error) {
-				console.error(`Error indexing ${file.path}:`, error);
 			}
 		}
 
@@ -485,6 +488,9 @@ export class RAGManager {
 		}
 		progressCallback(1);
 
+		if (failed > 0) {
+			throw new Error(`Indexing finished with ${failed} failed source${failed === 1 ? "" : "s"}. Successful sources were saved. Check the console and retry indexing.`);
+		}
 		debugLog(`✅ Indexing complete. ${this.fileIndex.size} files indexed.`);
 	}
 

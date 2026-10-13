@@ -200,7 +200,7 @@ export class VaultRadarView extends ItemView {
 			cls: "mod-cta",
 			attr: {
 				type: "button",
-				title: "Create a local Obsidian Canvas from this insight",
+				title: "Create a local Obsidian canvas from this insight",
 			},
 		});
 		map.disabled = disabled;

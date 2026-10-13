@@ -1,3 +1,4 @@
+import { ChatRenderScope } from "./chatRenderScope";
 import { App, Modal, TextComponent, ButtonComponent, setIcon, Notice } from "obsidian";
 import type OLocalLLMPlugin from "../main";
 import type { OLocalLLMSettings } from "../main";
@@ -10,6 +11,7 @@ export class RAGChatModal extends Modal {
 	private result: string = "";
 	private pluginSettings: OLocalLLMSettings;
 	private plugin: OLocalLLMPlugin;
+	private renderScope = new ChatRenderScope();
 	private ragManager: RAGManager;
 	private submitButton: ButtonComponent;
 	private chatHistoryEl: HTMLElement;
@@ -20,6 +22,7 @@ export class RAGChatModal extends Modal {
 	private scopeSelector: RAGScopeSelector;
 	private initialScope?: RAGQueryScope;
 	private isSubmitting: boolean = false;
+	private activeRequestId = 0;
 
 	constructor(app: App, settings: OLocalLLMSettings, ragManager: RAGManager, plugin: OLocalLLMPlugin, initialScope?: RAGQueryScope) {
 		super(app);
@@ -31,6 +34,7 @@ export class RAGChatModal extends Modal {
 	}
 
 	onOpen() {
+		this.renderScope.reset();
 		const { contentEl } = this;
 		contentEl.addClass("rag-chat-modal");
 
@@ -38,12 +42,12 @@ export class RAGChatModal extends Modal {
 		const headerIcon = header.createSpan({ cls: "rag-chat-header-icon" });
 		setIcon(headerIcon, "book-open");
 		const headerText = header.createDiv({ cls: "rag-chat-header-text" });
-		headerText.createEl("h2", { text: "Chat with Notes" });
+		headerText.createEl("h2", { text: "Chat with notes" });
 		const indexedCount = this.ragManager.getIndexedFilesCount();
 		const subtitle = indexedCount > 0
 			? `Searching across ${indexedCount} indexed files`
 			: "No files indexed yet — index notes in settings";
-		headerText.createEl("span", { text: subtitle, cls: "rag-chat-subtitle" });
+		headerText.createSpan({ text: subtitle, cls: "rag-chat-subtitle" });
 
 		const scopeBar = contentEl.createDiv({ cls: "rag-chat-scope-bar" });
 		this.scopeSelector = new RAGScopeSelector(this.app, scopeBar, {
@@ -65,7 +69,7 @@ export class RAGChatModal extends Modal {
 		clearBtn.buttonEl.addClass("rag-chat-clear-btn");
 
 		this.textInput = new TextComponent(inputRow)
-			.setPlaceholder("Ask about your notes... Use @[[Note Name]], @folder(path), or #tag")
+			.setPlaceholder("Ask about your notes... Use @[[note name]], @folder(path), or #tag")
 			.onChange((value) => {
 				this.result = value;
 				this.updateSubmitButtonState();
@@ -97,7 +101,7 @@ export class RAGChatModal extends Modal {
 		});
 
 		const examples = welcomeContent.createDiv({ cls: "rag-chat-examples" });
-		examples.createEl("span", { text: "Try asking:", cls: "rag-chat-examples-label" });
+		examples.createSpan({ text: "Try asking:", cls: "rag-chat-examples-label" });
 
 		const exampleQueries = [
 			"What are my main topics?",
@@ -128,6 +132,7 @@ export class RAGChatModal extends Modal {
 
 	private async handleSubmit() {
 		if (this.isSubmitting || this.result.trim() === "") return;
+		const requestId = ++this.activeRequestId;
 		this.isSubmitting = true;
 		this.textInput.setDisabled(true);
 		this.submitButton.setDisabled(true);
@@ -155,6 +160,7 @@ export class RAGChatModal extends Modal {
 		try {
 			const result = await submitNotesChat(this.plugin, query, this.conversationHistory, this.initialChatContext, scope, badgeText);
 
+			if (requestId !== this.activeRequestId) return;
 			thinkingEl.remove();
 
 			const renderedMessage = this.plugin.vaultAgent.renderAgentResponse(
@@ -162,6 +168,7 @@ export class RAGChatModal extends Modal {
 				result.response,
 				result.context,
 				{
+					renderScope: this.renderScope,
 					messageClassName: "rag-chat-message rag-chat-message-ai",
 					responseTextClassName: "rag-chat-response-text",
 					copyButtonClassName: "rag-chat-copy-btn",
@@ -174,6 +181,7 @@ export class RAGChatModal extends Modal {
 
 			this.scrollToBottom();
 		} catch (error) {
+			if (requestId !== this.activeRequestId) return;
 			thinkingEl.remove();
 
 			const errorMsg = this.chatHistoryEl.createDiv({ cls: "rag-chat-message rag-chat-message-error" });
@@ -185,14 +193,21 @@ export class RAGChatModal extends Modal {
 			new Notice(error instanceof Error ? error.message : "Notes chat failed. Make sure notes are indexed.");
 			this.scrollToBottom();
 		} finally {
-			this.isSubmitting = false;
-			this.textInput.setDisabled(false);
-			this.updateSubmitButtonState();
-			this.textInput.inputEl.focus();
+			if (requestId === this.activeRequestId) {
+				this.isSubmitting = false;
+				this.textInput.setDisabled(false);
+				this.updateSubmitButtonState();
+				this.textInput.inputEl.focus();
+			}
 		}
 	}
 
 	private clearConversation() {
+		this.activeRequestId++;
+		this.isSubmitting = false;
+		this.textInput.setDisabled(false);
+		this.updateSubmitButtonState();
+		this.renderScope.reset();
 		this.conversationHistory = [];
 		this.chatHistoryEl.empty();
 		this.showWelcomeMessage();
@@ -213,6 +228,8 @@ export class RAGChatModal extends Modal {
 	}
 
 	onClose() {
+		this.activeRequestId++;
+		this.renderScope.dispose();
 		this.contentEl.empty();
 	}
 }

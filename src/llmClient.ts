@@ -127,7 +127,7 @@ export class OpenAICompatibleClient {
 		this.completionTimeoutMs = options.completionTimeoutMs ?? DEFAULT_COMPLETION_TIMEOUT_MS;
 		this.embeddingTimeoutMs = options.embeddingTimeoutMs ?? DEFAULT_EMBEDDING_TIMEOUT_MS;
 		this.modelsTimeoutMs = options.modelsTimeoutMs ?? DEFAULT_MODELS_TIMEOUT_MS;
-		this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+		this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => window.setTimeout(resolve, ms)));
 	}
 
 	async complete(request: CompletionRequest): Promise<string> {
@@ -285,9 +285,9 @@ export class OpenAICompatibleClient {
 		request: LLMTransportRequest,
 		policy: RequestPolicy,
 	): Promise<LLMTransportResponse> {
-		let timer: ReturnType<typeof setTimeout> | undefined;
+		let timer: number | undefined;
 		const timeout = new Promise<never>((_, reject) => {
-			timer = setTimeout(() => {
+			timer = window.setTimeout(() => {
 				reject(new LLMClientError(
 					"timeout",
 					policy.operation,
@@ -302,7 +302,7 @@ export class OpenAICompatibleClient {
 			return await Promise.race([this.transport(request), timeout]);
 		} finally {
 			if (timer !== undefined) {
-				clearTimeout(timer);
+				window.clearTimeout(timer);
 			}
 		}
 	}

@@ -1,4 +1,5 @@
-import { App, MarkdownRenderer, MarkdownView, Notice, TFile, setIcon } from "obsidian";
+import { ChatRenderScope } from "./chatRenderScope";
+import { App, MarkdownView, Notice, TFile, setIcon } from "obsidian";
 import { extractActualResponse, parseReasoningMarkers } from "./reasoningExtractor";
 import type OLocalLLMPlugin from "../main";
 import type { SourceReference } from "./rag";
@@ -78,6 +79,7 @@ interface SubmitChatRequest {
 }
 
 interface RenderAgentResponseOptions {
+	renderScope: ChatRenderScope;
 	messageClassName: string;
 	responseTextClassName?: string;
 	copyButtonClassName?: string;
@@ -413,7 +415,7 @@ export class VaultAgentService {
 		const responseTextEl = options.responseTextClassName
 			? responseContainer.createDiv({ cls: options.responseTextClassName })
 			: responseContainer.createDiv();
-		this.renderResponseText(responseTextEl, text, context, options.scrollToBottom);
+		this.renderResponseText(responseTextEl, text, context, options);
 		return responseContainer;
 	}
 
@@ -421,7 +423,7 @@ export class VaultAgentService {
 		container: HTMLElement,
 		text: string,
 		context: ChatEnvironmentContext,
-		scrollToBottom?: () => void,
+		options: RenderAgentResponseOptions,
 	): void {
 		if (!this.plugin.settings.renderMarkdownInChat) {
 			renderSafeMarkdownishText(container, text);
@@ -429,20 +431,13 @@ export class VaultAgentService {
 		}
 
 		container.addClass("markdown-rendered", "llm-helper-chat-markdown");
-		void MarkdownRenderer.render(
-			this.app,
-			text,
-			container,
-			context.activeFilePath || "",
-			this.plugin,
-		).then(() => {
-			scrollToBottom?.();
-		}).catch((error) => {
-			console.error("Markdown rendering failed:", error);
-			container.empty();
-			renderSafeMarkdownishText(container, text);
-			scrollToBottom?.();
-		});
+		options.renderScope.render(this.app, text, container, context.activeFilePath || "",
+			options.scrollToBottom, (error) => {
+				console.error("Markdown rendering failed:", error);
+				container.empty();
+				renderSafeMarkdownishText(container, text);
+				options.scrollToBottom?.();
+			});
 	}
 
 	private renderPendingAction(
@@ -508,7 +503,7 @@ export class VaultAgentService {
 
 	private renderSources(container: HTMLElement, sources: SourceReference[]) {
 		const sourcesEl = container.createDiv({ cls: "rag-chat-sources" });
-		sourcesEl.createEl("span", { text: "Sources:", cls: "rag-chat-sources-label" });
+		sourcesEl.createSpan({ text: "Sources:", cls: "rag-chat-sources-label" });
 		const sourcesList = sourcesEl.createDiv({ cls: "rag-chat-sources-list" });
 		for (const source of sources) {
 			const item = sourcesList.createDiv({ cls: "rag-chat-source-item" });

@@ -41,7 +41,7 @@ export class PromptPickerModal extends Modal {
 		this.customPromptInput = contentEl.createEl("textarea", {
 			cls: "prompt-custom-input",
 			attr: {
-				placeholder: "e.g., Translate to Spanish, Add emoji, Convert to haiku...",
+				placeholder: "E.g., translate to Spanish, add emoji, convert to haiku...",
 				rows: "3"
 			}
 		});

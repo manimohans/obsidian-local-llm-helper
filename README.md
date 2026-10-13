@@ -241,7 +241,7 @@ You can also open the [plugin listing](https://obsidian.md/plugins?id=local-llm-
 
 ## Development
 
-Requirements: Node.js 20 or later.
+Requirements: Node.js 22.13 or later.
 
 ```bash
 git clone https://github.com/manimohans/obsidian-local-llm-helper.git
@@ -250,7 +250,7 @@ npm ci
 npm run check
 ```
 
-`npm run check` runs the Vitest suite, TypeScript validation, and the production bundle. See [CONTRIBUTING.md](CONTRIBUTING.md) for local-vault setup and contribution guidelines.
+`npm run check` runs the official Obsidian lint rules, Vitest suite, TypeScript validation, and the production bundle. See [CONTRIBUTING.md](CONTRIBUTING.md) for local-vault setup and contribution guidelines.
 
 ## Project links
 

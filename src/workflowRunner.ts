@@ -202,7 +202,7 @@ export class WorkflowRunnerService {
 			if (!this.isRecord(parsed)) {
 				throw new Error("Workflow response must be a JSON object.");
 			}
-			return parsed as WorkflowLLMEnvelope;
+			return parsed;
 		} catch (error) {
 			throw new Error(`Workflow returned invalid JSON: ${error instanceof Error ? error.message : "Invalid JSON"}`);
 		}

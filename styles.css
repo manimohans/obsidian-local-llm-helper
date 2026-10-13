@@ -1650,3 +1650,14 @@
         width: 100%;
     }
 }
+
+/* Keep custom settings sections searchable without changing the legacy controls. */
+.llm-helper-settings-section {
+	flex-direction: column;
+	align-items: stretch;
+}
+
+.llm-helper-settings-section-content {
+	width: 100%;
+	font-weight: var(--font-normal);
+}

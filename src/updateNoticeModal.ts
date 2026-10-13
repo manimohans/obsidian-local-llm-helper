@@ -3,6 +3,24 @@ import { App, Modal, MarkdownRenderer, Component, Setting } from "obsidian";
 // Changelog entries - add new versions at the top
 const CHANGELOGS: { version: string; date: string; changes: string }[] = [
 	{
+		version: "2.6.2",
+		date: "2026-10",
+		changes: `
+**Index reliability**
+- Preserve the working index when embedding or saving fails, and retry unsaved changes on the next indexing run.
+- Recover the previous saved index if replacing its file is interrupted.
+- Remove deleted or shortened notes from search, including when the last eligible source is removed.
+- Prevent overlapping index operations and discard results when a source changes, embedding settings change, or the plugin unloads.
+- Re-extract attachments when OCR settings change and report failed PDF OCR pages so they can be retried.
+
+**Chat and settings**
+- Prevent duplicate chat and workflow requests, and preserve drafts typed while waiting for a response.
+- Clean up Markdown embeds that finish rendering after a conversation closes or clears.
+- Reset pending chat state on close and allow retrying workflows after a settings save failure.
+- Fix settings section layout, duplicate debounced saves, and indexing progress display.
+`,
+	},
+	{
 		version: "2.6.1",
 		date: "2026-10",
 		changes: `

@@ -34,15 +34,13 @@ class InMemoryVectorStore {
 		this.embedder = embedder;
 	}
 
-	async addDocuments(docs: IndexedDocument[]): Promise<void> {
+	async embedDocuments(docs: IndexedDocument[]): Promise<VectorEntry[]> {
 		if (docs.length === 0) {
-			return;
+			return [];
 		}
 
 		const vectors = await this.embedder.embedDocuments(docs.map(doc => doc.pageContent));
-		for (let i = 0; i < docs.length; i++) {
-			this.entries.push({ doc: docs[i], vector: vectors[i] });
-		}
+		return docs.map((doc, i) => ({ doc, vector: vectors[i] }));
 	}
 
 	removeBySource(path: string): void {
@@ -151,9 +149,14 @@ export class RAGManager {
 	private fileIndex: Map<string, FileIndex> = new Map();
 	private provider: string;
 	private isLoaded: boolean = false;
+	private initializationPromise: Promise<void> | null = null;
 	private cachedEmbeddings: Map<string, StoredEmbedding[]> = new Map();
 	private embeddingConfig: EmbeddingConfigSnapshot;
 	private attachmentExtractor: AttachmentExtractor;
+	private indexOperationInProgress = false;
+	private indexRevision = 0;
+	private indexDirty = false;
+	private disposed = false;
 
 	constructor(
 		private vault: Vault,
@@ -170,17 +173,15 @@ export class RAGManager {
 
 	async initialize(): Promise<void> {
 		if (this.isLoaded) return;
-
-		debugLog("🔄 RAGManager: Starting initialization...");
-
-		try {
-			await this.loadEmbeddings();
-			this.isLoaded = true;
-			debugLog("✅ RAGManager initialized");
-		} catch (error) {
-			console.error("❌ Failed to load embeddings:", error);
-			// Leave isLoaded false so a later initialize() can retry.
-		}
+		if (this.initializationPromise) return this.initializationPromise;
+		const revision = this.indexRevision;
+		const pending = this.loadEmbeddings().then(() => {
+			if (revision === this.indexRevision && !this.disposed) this.isLoaded = true;
+		}).finally(() => {
+			if (this.initializationPromise === pending) this.initializationPromise = null;
+		});
+		this.initializationPromise = pending;
+		return pending;
 	}
 
 	updateSettings(settings: OLocalLLMSettings): void {
@@ -191,6 +192,9 @@ export class RAGManager {
 			nextEmbeddingConfig.indexPdfAttachments !== this.embeddingConfig.indexPdfAttachments ||
 			nextEmbeddingConfig.ocrImageAttachments !== this.embeddingConfig.ocrImageAttachments ||
 			nextEmbeddingConfig.ocrScannedPdfAttachments !== this.embeddingConfig.ocrScannedPdfAttachments;
+		if (modelChanged || serverChanged || attachmentSettingsChanged) {
+			this.indexRevision++;
+		}
 
 		this.settings = settings;
 		this.provider = settings.providerType || "ollama";
@@ -208,8 +212,11 @@ export class RAGManager {
 			// loadEmbeddings warns that a re-index is needed.
 			this.vectorStore = new InMemoryVectorStore(this.embeddings);
 			this.fileIndex.clear();
-			void this.loadEmbeddings();
+			this.isLoaded = false;
+			this.initializationPromise = null;
+			void this.initialize().catch((error: unknown) => console.error("Failed to reload embeddings:", error));
 		} else if (attachmentSettingsChanged) {
+			this.invalidateAttachments();
 			debugLog("⚠️ RAGManager: Index settings changed. Re-index recommended for best results.");
 		}
 	}
@@ -444,48 +451,69 @@ export class RAGManager {
 	}
 
 	async indexNotes(progressCallback: (progress: number) => void): Promise<void> {
+		if (this.indexOperationInProgress) {
+			throw new Error("Indexing or clearing is already in progress. Please wait for it to finish.");
+		}
+		this.indexOperationInProgress = true;
+		try {
+			await this.runIndexing(progressCallback);
+		} finally {
+			this.indexOperationInProgress = false;
+		}
+	}
+
+	private assertIndexRevision(revision: number): void {
+		if (this.disposed) throw new Error("Indexing stopped because the plugin was unloaded.");
+		if (revision !== this.indexRevision) {
+			throw new Error("Indexing settings changed. Please restart indexing with the new settings.");
+		}
+	}
+
+	private async runIndexing(progressCallback: (progress: number) => void): Promise<void> {
+		const revision = this.indexRevision;
+		this.assertIndexRevision(revision);
 		await this.initialize();
 		await this.waitForVaultReady();
+		this.assertIndexRevision(revision);
 
 		debugLog("📚 Starting indexing process...");
 
 		const allFiles = this.getIndexableFiles();
-		const totalFiles = allFiles.length;
-
-		if (totalFiles === 0) {
-			debugLog("No eligible sources found in vault.");
-			return;
-		}
-
 		const { toIndex, toRemove, unchanged } = await this.getFilesToProcess(allFiles);
+		this.assertIndexRevision(revision);
 
 		debugLog(`📊 Index status: ${toIndex.length} new/modified, ${toRemove.length} deleted, ${unchanged.length} unchanged`);
 
 		for (const path of toRemove) {
 			this.removeFileFromIndex(path);
 		}
+		progressCallback(0.1);
 
 		let processed = 0;
 		let failed = 0;
 		const totalToProcess = toIndex.length;
 
 		for (const file of toIndex) {
+			this.assertIndexRevision(revision);
 			try {
 				await this.indexFile(file);
 			} catch (error) {
+				this.assertIndexRevision(revision);
 				failed++;
 				console.error(`Error indexing ${file.path}:`, error);
 			} finally {
 				processed++;
-				progressCallback((processed / totalToProcess) * 0.9 + 0.1);
+				progressCallback((processed / totalToProcess) * 0.8 + 0.1);
 			}
 		}
 
+		this.assertIndexRevision(revision);
 		progressCallback(0.95);
 		// Skip the full-index rewrite when nothing changed
-		if (toIndex.length > 0 || toRemove.length > 0) {
+		if (this.indexDirty || toIndex.length > 0 || toRemove.length > 0) {
 			await this.saveEmbeddings();
 		}
+		this.assertIndexRevision(revision);
 		progressCallback(1);
 
 		if (failed > 0) {
@@ -539,7 +567,7 @@ export class RAGManager {
 
 			if (!existing) {
 				toIndex.push(file);
-			} else if (file.stat.mtime > existing.modified) {
+			} else if (file.stat.mtime !== existing.modified) {
 				toIndex.push(file);
 			} else if (existing.sourceType !== this.getSourceTypeForFile(file)) {
 				toIndex.push(file);
@@ -552,17 +580,18 @@ export class RAGManager {
 	}
 
 	private async indexFile(file: TFile): Promise<void> {
+		const revision = this.indexRevision;
+		const path = file.path;
+		const modified = file.stat.mtime;
 		const sourceType = this.getSourceTypeForFile(file);
 		if (sourceType === "markdown") {
-			await this.indexMarkdownFile(file);
+			await this.indexMarkdownFile(file, revision, path, modified);
 			return;
 		}
 
 		const extractedChunks = await this.attachmentExtractor.extractAttachment(file);
-		this.removeFileFromIndex(file.path);
 		if (extractedChunks.length === 0) {
 			debugLog(`⏭️ Skipping ${file.path} (no extractable attachment text)`);
-			return;
 		}
 
 		const docs: IndexedDocument[] = [];
@@ -590,34 +619,21 @@ export class RAGManager {
 			})));
 		}
 
-		if (docs.length === 0) {
-			return;
-		}
-
 		this.assignChunkTotals(docs);
-		await this.vectorStore.addDocuments(docs);
-		this.fileIndex.set(file.path, {
-			path: file.path,
-			modified: file.stat.mtime,
-			chunks: docs.length,
-			sourceType,
-		});
+		await this.replaceFileDocuments(file, docs, revision, path, modified);
 		debugLog(`✅ Indexed ${file.path} (${docs.length} chunks)`);
 	}
 
-	private async indexMarkdownFile(file: TFile): Promise<void> {
+	private async indexMarkdownFile(file: TFile, revision: number, path: string, modified: number): Promise<void> {
 		const content = await this.vault.cachedRead(file);
 		const cleanedContent = this.preprocessMarkdownContent(content);
 		if (cleanedContent.length < MIN_CONTENT_LENGTH) {
 			debugLog(`⏭️ Skipping ${file.path} (content too short)`);
+			await this.replaceFileDocuments(file, [], revision, path, modified);
 			return;
 		}
 
-		this.removeFileFromIndex(file.path);
 		const chunks = this.splitIntoChunks(cleanedContent);
-		if (chunks.length === 0) {
-			return;
-		}
 		const now = Date.now();
 
 		const docs: IndexedDocument[] = chunks.map((content, i) => ({
@@ -634,14 +650,28 @@ export class RAGManager {
 			},
 		}));
 
-		await this.vectorStore.addDocuments(docs);
-		this.fileIndex.set(file.path, {
-			path: file.path,
-			modified: file.stat.mtime,
-			chunks: chunks.length,
-			sourceType: "markdown",
-		});
+		await this.replaceFileDocuments(file, docs, revision, path, modified);
 		debugLog(`✅ Indexed ${file.path} (${chunks.length} chunks)`);
+	}
+
+	private async replaceFileDocuments(file: TFile, docs: IndexedDocument[], revision: number, path: string, modified: number): Promise<void> {
+		// Prepare the entire replacement before touching a working index.
+		const entries = await this.vectorStore.embedDocuments(docs);
+		this.assertIndexRevision(revision);
+		if (file.path !== path || file.stat.mtime !== modified) {
+			throw new Error(`${path} changed during indexing. Please retry indexing.`);
+		}
+		this.removeFileFromIndex(path);
+		this.vectorStore.entries.push(...entries);
+		if (docs.length > 0) {
+			this.fileIndex.set(path, { path, modified, chunks: docs.length, sourceType: this.getSourceTypeForFile(file) });
+		}
+	}
+
+	private invalidateAttachments(): void {
+		for (const file of this.fileIndex.values()) {
+			if (file.sourceType !== "markdown") file.modified = -1;
+		}
 	}
 
 	private assignChunkTotals(docs: IndexedDocument[]): void {
@@ -652,6 +682,7 @@ export class RAGManager {
 	}
 
 	private removeFileFromIndex(path: string): void {
+		this.indexDirty = true;
 		this.fileIndex.delete(path);
 		this.vectorStore.removeBySource(path);
 		this.cachedEmbeddings.delete(path);
@@ -935,6 +966,7 @@ export class RAGManager {
 	}
 
 	async saveEmbeddings(): Promise<void> {
+		const revision = this.indexRevision;
 		try {
 			debugLog('💾 Saving embeddings...');
 
@@ -965,11 +997,23 @@ export class RAGManager {
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
 			// Write to a temp file first so a crash mid-write can't corrupt the index
 			const tmpPath = `${embeddingPath}.tmp`;
+			const backupPath = `${embeddingPath}.bak`;
 			await adapter.write(tmpPath, JSON.stringify(embeddingData));
 			if (await adapter.exists(embeddingPath)) {
-				await adapter.remove(embeddingPath);
+				if (await adapter.exists(backupPath)) await adapter.remove(backupPath);
+				await adapter.rename(embeddingPath, backupPath);
 			}
-			await adapter.rename(tmpPath, embeddingPath);
+			try {
+				await adapter.rename(tmpPath, embeddingPath);
+			} catch (error) {
+				// Keep the last good index recoverable even if installing the temp file fails.
+				if (!await adapter.exists(embeddingPath) && await adapter.exists(backupPath)) {
+					await adapter.rename(backupPath, embeddingPath);
+				}
+				throw error;
+			}
+			if (await adapter.exists(backupPath)) await adapter.remove(backupPath);
+			if (revision === this.indexRevision) this.indexDirty = false;
 
 			debugLog(`✅ Saved ${storedEmbeddings.length} embeddings from ${this.fileIndex.size} files`);
 		} catch (error) {
@@ -979,18 +1023,23 @@ export class RAGManager {
 	}
 
 	async loadEmbeddings(): Promise<void> {
+		const revision = this.indexRevision;
 		try {
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
 
 			let data: EmbeddingData;
 			try {
-				const embeddingJson = await adapter.read(embeddingPath);
+				// A crash between the two renames leaves the previous index in .bak.
+				const readPath = await adapter.exists(embeddingPath) ? embeddingPath : `${embeddingPath}.bak`;
+				const embeddingJson = await adapter.read(readPath);
 				data = JSON.parse(embeddingJson);
+				if (readPath !== embeddingPath && revision === this.indexRevision) this.indexDirty = true;
 			} catch {
 				debugLog("📂 No existing embeddings found");
 				return;
 			}
+			if (revision !== this.indexRevision || this.disposed) return;
 
 			if (!data?.embeddings?.length) {
 				debugLog("📂 Empty embeddings file");
@@ -1035,6 +1084,7 @@ export class RAGManager {
 					this.fileIndex.set(path, { path, modified: 0, chunks: 0, sourceType: "markdown" });
 				}
 			}
+			if (this.shouldRebuildIndex(data.settings)) this.invalidateAttachments();
 
 			debugLog(`✅ Loaded ${data.embeddings.length} embeddings from ${this.fileIndex.size} files`);
 
@@ -1129,23 +1179,33 @@ export class RAGManager {
 	}
 
 	async clearStoredEmbeddings(): Promise<void> {
+		if (this.indexOperationInProgress) {
+			throw new Error("Indexing or clearing is in progress. Please wait for it to finish.");
+		}
+		this.indexOperationInProgress = true;
 		try {
 			const adapter = this.plugin.app.vault.adapter;
 			const embeddingPath = `${this.plugin.manifest.dir}/embeddings.json`;
 
-			try {
+			for (const suffix of [".bak", ".tmp"]) {
+				if (await adapter.exists(`${embeddingPath}${suffix}`)) await adapter.remove(`${embeddingPath}${suffix}`);
+			}
+			if (await adapter.exists(embeddingPath)) {
 				await adapter.remove(embeddingPath);
-			} catch {
-				// File might not exist
 			}
 
 			this.fileIndex.clear();
 			this.cachedEmbeddings.clear();
 			this.vectorStore.clear();
+			this.indexRevision++;
+			this.indexDirty = false;
 
 			debugLog('✅ Cleared all embeddings');
 		} catch (error) {
 			console.error('Failed to clear embeddings:', error);
+			throw error;
+		} finally {
+			this.indexOperationInProgress = false;
 		}
 	}
 
@@ -1161,6 +1221,8 @@ export class RAGManager {
 	}
 
 	async dispose(): Promise<void> {
+		this.disposed = true;
+		this.indexRevision++;
 		await this.attachmentExtractor.dispose();
 	}
 

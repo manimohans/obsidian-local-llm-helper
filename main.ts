@@ -1673,7 +1673,6 @@ class ModelPickerModal extends SuggestModal<string> {
 
 export class OLLMSettingTab extends PluginSettingTab {
 	plugin: OLocalLLMPlugin;
-	private indexingProgressBar: HTMLProgressElement | null = null;
 	private indexedFilesCountSetting: Setting | null = null;
 	private saveTimeout: number | null = null;
 	private indexedCountTimer: number | null = null;
@@ -1689,6 +1688,7 @@ export class OLLMSettingTab extends PluginSettingTab {
 			window.clearTimeout(this.saveTimeout);
 		}
 		this.saveTimeout = window.setTimeout(() => {
+			this.saveTimeout = null;
 			void this.plugin.saveSettings();
 		}, 500);
 	}
@@ -1770,7 +1770,6 @@ export class OLLMSettingTab extends PluginSettingTab {
 	}
 
 	private renderSettingsSection(setting: Setting, render: (el: HTMLElement) => void): void {
-		setting.setHeading();
 		setting.settingEl.addClass("llm-helper-settings-section");
 		setting.controlEl.remove();
 		render(setting.settingEl.createDiv({ cls: "llm-helper-settings-section-content" }));
@@ -2517,24 +2516,18 @@ export class OLLMSettingTab extends PluginSettingTab {
 				.setButtonText("Start indexing")
 				.onClick(async () => {
 					button.setDisabled(true);
-					this.indexingProgressBar = containerEl.createEl("progress", {
+					const progressBar = containerEl.createEl("progress", {
 						attr: { value: 0, max: 100 }
 					});
 					const counterEl = containerEl.createSpan({
-						text: "Processing: 0/?",
+						text: "Indexing: 0%",
 						cls: "indexing-counter"
 					});
 
-					const totalFiles = this.plugin.ragManager.getEligibleSourceCount();
-					let processedFiles = 0;
-
 					try {
 						await this.plugin.ragManager.indexNotes((progress) => {
-							if (this.indexingProgressBar) {
-								this.indexingProgressBar.value = progress * 100;
-							}
-							processedFiles = Math.floor(progress * totalFiles);
-							counterEl.textContent = `   Processing sources: ${processedFiles}/${totalFiles}`;
+							progressBar.value = progress * 100;
+							counterEl.textContent = `   Indexing: ${Math.round(progress * 100)}%`;
 							counterEl.addClass("indexing-counter-small");
 						});
 						new Notice("Indexing complete!");
@@ -2544,10 +2537,7 @@ export class OLLMSettingTab extends PluginSettingTab {
 						new Notice(error instanceof Error ? error.message : "Error during indexing. Check console for details.");
 					} finally {
 						button.setDisabled(false);
-						if (this.indexingProgressBar) {
-							this.indexingProgressBar.remove();
-							this.indexingProgressBar = null;
-						}
+						progressBar.remove();
 						counterEl.remove();
 					}
 				}));
@@ -2870,6 +2860,7 @@ async function processText(
 export class LLMChatModal extends Modal {
 	private renderScope = new ChatRenderScope();
 	private activeRequestId = 0;
+	private isSubmitting = false;
 	result: string = "";
 	pluginSettings: OLocalLLMSettings;
 	plugin: OLocalLLMPlugin;
@@ -2917,6 +2908,7 @@ export class LLMChatModal extends Modal {
 		inputRow.createSpan({ text: "Ask:", cls: "llm-chat-ask-label" });
 
 		const textInput = new TextComponent(inputRow)
+			.setValue(this.result)
 			.setPlaceholder("Type your question here...")
 			.onChange((value) => {
 				this.result = value;
@@ -2945,13 +2937,14 @@ export class LLMChatModal extends Modal {
 
 	onClose() {
 		this.activeRequestId++;
+		this.isSubmitting = false;
 		this.renderScope.dispose();
 		let { contentEl } = this;
 		contentEl.empty();
 	}
 
 	updateSubmitButtonState() {
-		if (this.result.trim() === "") {
+		if (this.isSubmitting || this.result.trim() === "") {
 			this.submitButton.setDisabled(true);
 			this.submitButton.buttonEl.classList.add("llm-chat-submit-button-disabled");
 		} else {
@@ -2962,31 +2955,37 @@ export class LLMChatModal extends Modal {
 
 	// New method to handle submission
 	async handleSubmit() {
-		if (this.result.trim() === "") {
+		if (this.isSubmitting || this.result.trim() === "") {
 			return;
 		}
 
-		const requestId = ++this.activeRequestId;
 		const chatHistoryEl = this.contentEl.querySelector('.llm-chat-history');
 		if (chatHistoryEl) {
-			await processChatInput(
-				this.result,
-				this.contentEl,
-				chatHistoryEl as HTMLElement,
-				this.conversationHistory,
-				this.plugin,
-				this.initialChatContext,
-				this.renderScope,
-				() => requestId === this.activeRequestId,
-			);
-			if (requestId !== this.activeRequestId) return;
-			this.result = ""; // Clear user input field
-			const textInputEl = this.contentEl.querySelector('.llm-chat-input') as HTMLInputElement;
-			if (textInputEl) {
-				textInputEl.value = "";
+			const requestId = ++this.activeRequestId;
+			this.isSubmitting = true;
+			const message = this.result;
+			this.result = "";
+			const textInputEl = this.contentEl.querySelector<HTMLInputElement>('.llm-chat-input');
+			if (textInputEl) textInputEl.value = "";
+			this.updateSubmitButtonState();
+			try {
+				await processChatInput(
+					message,
+					this.contentEl,
+					chatHistoryEl as HTMLElement,
+					this.conversationHistory,
+					this.plugin,
+					this.initialChatContext,
+					this.renderScope,
+					() => requestId === this.activeRequestId,
+				);
+			} finally {
+				if (requestId === this.activeRequestId) {
+					this.isSubmitting = false;
+					this.updateSubmitButtonState();
+					this.scrollToBottom();
+				}
 			}
-			this.updateSubmitButtonState(); // Disable the button after submission
-			this.scrollToBottom();
 		}
 	}
 

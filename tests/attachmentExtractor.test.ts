@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
 	destroyWorker: vi.fn(),
 	getPage: vi.fn(),
 	getDocument: vi.fn(),
+	createWorker: vi.fn(),
+	recognize: vi.fn(),
+	terminate: vi.fn(),
 }));
 const host = globalThis as typeof globalThis & { pdfjsWorker?: { WorkerMessageHandler: unknown } };
 vi.mock("pdfjs-dist/legacy/build/pdf.worker.mjs", () => {
@@ -26,6 +29,7 @@ vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
 		destroy = mocks.destroyWorker;
 	},
 }));
+vi.mock("tesseract.js", () => ({ createWorker: mocks.createWorker }));
 import { AttachmentExtractor } from "../src/attachmentExtractor";
 const settings = { indexPdfAttachments: true, ocrImageAttachments: false, ocrScannedPdfAttachments: false };
 const pdfFile = { path: "Docs/handbook.pdf", extension: "pdf" } as TFile;
@@ -91,4 +95,29 @@ describe("PDF worker registration and extraction", () => {
 		expect(await extractor.extractAttachment(pdfFile)).toEqual([]);
 		expect(mocks.getDocument).not.toHaveBeenCalled();
 	});
+	it("reports a failed OCR page instead of marking a partially extracted PDF as complete", async () => {
+		const extractor = createExtractor(); extractor.updateSettings({ ...settings, ocrScannedPdfAttachments: true });
+		mocks.getDocument.mockReturnValue({ promise: Promise.resolve({ numPages: 2, getPage: mocks.getPage }), destroy: mocks.destroy });
+		mocks.getPage.mockResolvedValueOnce({ getTextContent: async () => ({ items: [{ str: "A full first page with sufficient searchable text." }] }) })
+			.mockResolvedValueOnce({ getTextContent: async () => ({ items: [] }), getViewport: () => { throw new Error("Render failed"); } });
+		await expect(extractor.extractAttachment(pdfFile)).rejects.toThrow("page 2");
+		expect(mocks.destroyWorker).toHaveBeenCalledOnce();
+	});
+	it("retries OCR worker initialization after a failed download", async () => {
+		const extractor = createExtractor(); extractor.updateSettings({ ...settings, ocrImageAttachments: true });
+		const image = { path: "scan.png", extension: "png" } as TFile;
+		mocks.recognize.mockResolvedValue({ data: { text: "Recovered image text" } });
+		mocks.createWorker.mockRejectedValueOnce(new Error("Download failed")).mockResolvedValueOnce({ recognize: mocks.recognize, terminate: mocks.terminate });
+		await expect(extractor.extractAttachment(image)).rejects.toThrow("Download failed");
+		expect(await extractor.extractAttachment(image)).toEqual([{ text: "Recovered image text", sourceType: "image", extractionMethod: "image-ocr" }]);
+		expect(mocks.createWorker).toHaveBeenCalledTimes(2);
+		await extractor.dispose(); expect(mocks.terminate).toHaveBeenCalledOnce();
+	});
+	it("does not create an OCR worker after the extractor is disposed", async () => {
+		const extractor = createExtractor(); extractor.updateSettings({ ...settings, ocrImageAttachments: true });
+		await extractor.dispose();
+		await expect(extractor.extractAttachment({ path: "scan.png", extension: "png" } as TFile)).rejects.toThrow("unloaded");
+		expect(mocks.createWorker).not.toHaveBeenCalled();
+	});
+
 });

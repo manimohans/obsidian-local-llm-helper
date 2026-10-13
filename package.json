@@ -1,6 +1,6 @@
 {
   "name": "obsidian-local-llm-helper",
-  "version": "2.6.1",
+  "version": "2.6.2",
   "description": "Local-first AI for Obsidian with cited Vault Radar briefs and note-grounded chat",
   "main": "main.js",
   "engines": {

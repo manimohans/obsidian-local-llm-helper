@@ -18,6 +18,8 @@ main.js
 # obsidian
 data.json
 embeddings.json
+embeddings.json.tmp
+embeddings.json.bak
 vault-radar-state.json*
 
 # Exclude macOS Finder (System Explorer) View States

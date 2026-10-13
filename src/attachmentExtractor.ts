@@ -56,6 +56,7 @@ export async function ensurePdfWorker(): Promise<PDFWorker> {
 
 export class AttachmentExtractor {
 	private ocrWorkerPromise: Promise<OCRWorker> | null = null;
+	private disposed = false;
 
 	constructor(private vault: Vault, private settings: AttachmentIndexingSettings) {}
 
@@ -64,6 +65,7 @@ export class AttachmentExtractor {
 	}
 
 	async dispose(): Promise<void> {
+		this.disposed = true;
 		if (!this.ocrWorkerPromise) {
 			return;
 		}
@@ -82,6 +84,7 @@ export class AttachmentExtractor {
 	}
 
 	async extractAttachment(file: TFile): Promise<ExtractedAttachmentChunk[]> {
+		if (this.disposed) throw new Error("Attachment extraction stopped because the plugin was unloaded.");
 		if (this.isPdf(file)) {
 			if (!this.settings.indexPdfAttachments) {
 				return [];
@@ -127,6 +130,7 @@ export class AttachmentExtractor {
 			const chunks: ExtractedAttachmentChunk[] = [];
 
 			for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+				if (this.disposed) throw new Error("Attachment extraction stopped because the plugin was unloaded.");
 				const page = await pdf.getPage(pageNumber);
 				const textContent = await page.getTextContent();
 				const extractedText = textContent.items
@@ -160,7 +164,8 @@ export class AttachmentExtractor {
 						});
 					}
 				} catch (error) {
-					console.warn(`Skipping OCR for PDF page ${pageNumber} in ${file.path}:`, error);
+					const message = error instanceof Error ? error.message : String(error);
+					throw new Error(`OCR failed for page ${pageNumber} in ${file.path}: ${message}`);
 				}
 			}
 
@@ -232,11 +237,16 @@ export class AttachmentExtractor {
 	}
 
 	private async getOrCreateOCRWorker(): Promise<OCRWorker> {
+		if (this.disposed) throw new Error("Attachment extraction stopped because the plugin was unloaded.");
 		if (!this.ocrWorkerPromise) {
 			this.ocrWorkerPromise = (async () => {
 				const { createWorker } = await import("tesseract.js");
 				return createWorker("eng");
-			})();
+			})().catch((error: unknown) => {
+				// A transient worker/language download failure must not poison every retry.
+				this.ocrWorkerPromise = null;
+				throw error;
+			});
 		}
 
 		return this.ocrWorkerPromise;

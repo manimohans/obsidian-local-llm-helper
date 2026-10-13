@@ -83,6 +83,9 @@ export class ChatView extends ItemView {
 
 	async onClose(): Promise<void> {
 		this.activeRequestId++;
+		this.isGenerating = false;
+		this.activeThinkingEl = null;
+		this.result = "";
 		this.renderScope.dispose();
 		this.conversationHistory = [];
 		this.contentEl.empty();
@@ -424,6 +427,7 @@ export class ChatView extends ItemView {
 
 	private clearConversation(): void {
 		this.activeRequestId++;
+		this.activeThinkingEl = null;
 		this.setGenerating(false);
 		this.renderScope.reset();
 		this.conversationHistory = [];

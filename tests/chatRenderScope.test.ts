@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { App } from "obsidian";
 
-const mocks = vi.hoisted(() => ({ components: [] as { load: ReturnType<typeof vi.fn>; unload: ReturnType<typeof vi.fn> }[], render: vi.fn() }));
+const mocks = vi.hoisted(() => ({ components: [] as { load: ReturnType<typeof vi.fn>; unload: ReturnType<typeof vi.fn>; register: (callback: () => void) => void }[], render: vi.fn() }));
 vi.mock("obsidian", () => ({
 	Component: class {
-		load = vi.fn();
-		unload = vi.fn();
+		private loaded = false;
+		private cleanups: (() => void)[] = [];
+		load = vi.fn(() => { this.loaded = true; });
+		unload = vi.fn(() => {
+			if (!this.loaded) return;
+			this.loaded = false;
+			for (const cleanup of this.cleanups.splice(0)) cleanup();
+		});
+		register(callback: () => void) { this.cleanups.push(callback); }
 		constructor() { mocks.components.push(this); }
 	},
 	MarkdownRenderer: { render: mocks.render },
@@ -42,10 +49,12 @@ describe("chat Markdown lifecycle", () => {
 		const rendered = vi.fn();
 		scope.render(app, "![[Note]]", container, "", rendered);
 		scope.dispose();
+		const cleanupLateEmbed = vi.fn();
+		mocks.components[0].register(cleanupLateEmbed);
 		finish();
 		await settle();
 		expect(rendered).not.toHaveBeenCalled();
-		expect(mocks.components[0].unload).toHaveBeenCalledTimes(2);
+		expect(cleanupLateEmbed).toHaveBeenCalledOnce();
 		scope.render(app, "late response", container, "");
 		expect(mocks.render).toHaveBeenCalledOnce();
 	});
@@ -66,4 +75,15 @@ describe("chat Markdown lifecycle", () => {
 		expect(onError).not.toHaveBeenCalled();
 		scope.dispose();
 	});
+	it("waits for all pending embeds to register cleanup before unloading", async () => {
+		const finish: (() => void)[] = [];
+		mocks.render.mockImplementation(() => new Promise<void>(resolve => finish.push(resolve)));
+		const scope = new ChatRenderScope(); scope.reset();
+		scope.render(app, "first", container, ""); scope.render(app, "second", container, ""); scope.dispose();
+		const firstCleanup = vi.fn(); mocks.components[0].register(firstCleanup); finish[0](); await settle();
+		expect(firstCleanup).not.toHaveBeenCalled();
+		const secondCleanup = vi.fn(); mocks.components[0].register(secondCleanup); finish[1](); await settle();
+		expect(firstCleanup).toHaveBeenCalledOnce(); expect(secondCleanup).toHaveBeenCalledOnce();
+	});
+
 });

@@ -10,6 +10,7 @@ import type { RAGQueryScope } from "./rag";
 export class WorkflowModal extends Modal {
 	private renderScope = new ChatRenderScope();
 	private activeRequestId = 0;
+	private isSubmitting = false;
 	private recipeId: WorkflowRecipeId = "weekly-review";
 	private scopeSelector: RAGScopeSelector;
 	private scopeBarEl: HTMLElement;
@@ -212,15 +213,16 @@ export class WorkflowModal extends Modal {
 	}
 
 	private async handleSubmit() {
+		if (this.isSubmitting) return;
 		if (!this.canSubmit()) {
 			new Notice("Choose a target note before running this workflow.");
 			return;
 		}
 
 		const requestId = ++this.activeRequestId;
+		this.isSubmitting = true;
+		this.updateSubmitButtonState();
 		this.hideWelcomeMessage();
-		await this.persistDefaults();
-		if (requestId !== this.activeRequestId) return;
 
 		const config = this.buildRunConfig();
 		const recipe = this.plugin.workflowRunner.getRecipe(config.recipeId);
@@ -237,6 +239,8 @@ export class WorkflowModal extends Modal {
 
 		try {
 			const contextSnapshot = getCurrentOrFallbackChatContext(this.app);
+			await this.persistDefaults();
+			if (requestId !== this.activeRequestId) return;
 			const response = await this.plugin.workflowRunner.runWorkflow(config, contextSnapshot);
 			if (requestId !== this.activeRequestId) return;
 			thinkingEl.remove();
@@ -267,6 +271,11 @@ export class WorkflowModal extends Modal {
 			console.error("Workflow failed:", error);
 			new Notice(error instanceof Error ? error.message : "Workflow failed.");
 			this.scrollToBottom();
+		} finally {
+			if (requestId === this.activeRequestId) {
+				this.isSubmitting = false;
+				this.updateSubmitButtonState();
+			}
 		}
 	}
 
@@ -292,7 +301,7 @@ export class WorkflowModal extends Modal {
 	}
 
 	private updateSubmitButtonState() {
-		const disabled = !this.canSubmit();
+		const disabled = this.isSubmitting || !this.canSubmit();
 		this.submitButton.setDisabled(disabled);
 		if (disabled) {
 			this.submitButton.buttonEl.addClass("rag-chat-submit-disabled");
@@ -303,6 +312,8 @@ export class WorkflowModal extends Modal {
 
 	private clearConversation() {
 		this.activeRequestId++;
+		this.isSubmitting = false;
+		this.updateSubmitButtonState();
 		this.renderScope.reset();
 		this.chatHistoryEl.empty();
 		this.showWelcomeMessage();
@@ -321,6 +332,7 @@ export class WorkflowModal extends Modal {
 
 	onClose() {
 		this.activeRequestId++;
+		this.isSubmitting = false;
 		this.renderScope.dispose();
 		this.contentEl.empty();
 	}

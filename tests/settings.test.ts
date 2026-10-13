@@ -119,4 +119,11 @@ describe("settings API compatibility", () => {
 		expect(plugin.saveSettings).toHaveBeenCalledOnce();
 		expect(vi.getTimerCount()).toBe(0);
 	});
+	it("does not save a second time on hide after the debounce already fired", async () => {
+		const { plugin, tab } = await setup(); tab.display();
+		state.rows.find(row => row.name === "Temperature")!.controls[0].change!("0.5");
+		await vi.advanceTimersByTimeAsync(500); expect(plugin.saveSettings).toHaveBeenCalledOnce();
+		tab.hide(); expect(plugin.saveSettings).toHaveBeenCalledOnce();
+	});
+
 });

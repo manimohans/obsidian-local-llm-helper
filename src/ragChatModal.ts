@@ -229,6 +229,9 @@ export class RAGChatModal extends Modal {
 
 	onClose() {
 		this.activeRequestId++;
+		this.isSubmitting = false;
+		this.result = "";
+		this.conversationHistory = [];
 		this.renderScope.dispose();
 		this.contentEl.empty();
 	}

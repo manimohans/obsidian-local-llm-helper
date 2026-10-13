@@ -1657,6 +1657,11 @@
 	align-items: stretch;
 }
 
+.llm-helper-settings-section > .setting-item-info {
+	margin-right: 0;
+	font-weight: var(--font-semibold);
+}
+
 .llm-helper-settings-section-content {
 	width: 100%;
 	font-weight: var(--font-normal);
